@@ -1,0 +1,58 @@
+# 忽略大型数据文件夹
+data/*
+!data/README_data.md
+results/*
+!results/README_results.md
+pretrained_weights/*
+!pretrained_weights/
+
+# Python相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# 虚拟环境
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# 日志和缓存
+*.log
+.cache/
+.pytest_cache/
+.wandb/
+lightning_logs/
+
+# 模型和检查点（可选，如果不想上传预训练模型）
+# pretrained_weights/*.pth
+# pretrained_weights/*.pt
+
+# 临时文件
+*.tmp
+.temp/
