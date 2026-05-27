@@ -3,12 +3,10 @@ import datetime
 import logging
 import math
 import os
-
 import random
 import time
 import torch
 from os import path as osp
-
 from basicsr.data import create_dataloader, create_dataset
 from basicsr.data.data_sampler import EnlargedSampler
 from basicsr.data.prefetch_dataloader import CPUPrefetcher, CUDAPrefetcher
@@ -20,9 +18,7 @@ from basicsr.utils import (MessageLogger, check_resume, get_env_info,
 from basicsr.utils.dist_util import get_dist_info, init_dist
 from basicsr.utils.misc import mkdir_and_rename2
 from basicsr.utils.options import dict2str, parse
-
 import numpy as np
-
 from pdb import set_trace as stx
 
 def parse_options(is_train=True):
@@ -58,9 +54,7 @@ def parse_options(is_train=True):
         seed = random.randint(1, 10000)
         opt['manual_seed'] = seed
     set_random_seed(seed + opt['rank'])
-
     return opt
-
 
 def init_loggers(opt):
     log_file = osp.join(opt['path']['log'],
@@ -79,19 +73,10 @@ def init_loggers(opt):
     logger.info(get_env_info())
     logger.info(dict2str(opt))
 
-    # initialize wandb logger before tensorboard logger to allow proper sync:
-    # if (opt['logger'].get('wandb')
-    #         is not None) and (opt['logger']['wandb'].get('project')
-    #                           is not None) and ('debug' not in opt['name']):
-    #     assert opt['logger'].get('use_tb_logger') is True, (
-    #         'should turn on tensorboard when using wandb')
-    #     init_wandb_logger(opt)
-
     tb_logger = None
     if opt['logger'].get('use_tb_logger') and 'debug' not in opt['name']:
         tb_logger = init_tb_logger(log_dir=osp.join('tb_logger', opt['name']))
     return logger, tb_logger
-
 
 def create_train_val_dataloader(opt, logger):  #train loader 和 val loader 一起构建
     # create train and val dataloaders
@@ -146,6 +131,31 @@ def create_train_val_dataloader(opt, logger):  #train loader 和 val loader 一�
 
     return train_loader, train_sampler, val_loader, total_epochs, total_iters
 
+def check_lora_initialization(model, logger):
+    logger.info("--- Debugging LoRA Initialization ---")
+    lora_found = False
+    # 假设你的模型主网络是 model.net_g (根据你之前的代码逻辑)
+    # 如果你的模型结构名称不同，请自行修改为 model.net 等
+    target_net = model.net_g if hasattr(model, 'net_g') else model
+    
+    for name, param in target_net.named_parameters():
+        if 'lora_A' in name or 'lora_B' in name:
+            lora_found = True
+            is_zero = (param.data.abs().sum().item() == 0)
+            mean = param.data.mean().item()
+            std = param.data.std().item()
+            
+            # 如果是 lora_B，必须是全0
+            if 'lora_B' in name:
+                status = "PASS (Zero)" if is_zero else f"FAIL (Non-zero! Mean:{mean:.4f})"
+            else:
+                status = f"Mean:{mean:.4f}, Std:{std:.4f}"
+                
+            logger.info(f"Param: {name:50s} | Shape: {list(param.shape)} | Status: {status}")
+    
+    if not lora_found:
+        logger.warning("No LoRA parameters found! Check model definition.")
+    logger.info("--- End of Debugging ---")
 
 def main():
     # parse options, set distributed setting, set ramdom seed
@@ -168,7 +178,6 @@ def main():
         resume_state = os.path.join(state_folder_path, max_state_file)
         opt['path']['resume_state'] = resume_state
 
-    # load resume states if necessary，resume_state是重新训练的时候接上的吗？
     if opt['path'].get('resume_state'):
         device_id = torch.cuda.current_device()
         resume_state = torch.load(
@@ -212,8 +221,8 @@ def main():
         best_metric = {'iter': 0}
         for k, v in opt['val']['metrics'].items():
             best_metric[k] = 0
-        # stx()
 
+    # check_lora_initialization(model, logger)
     # create message logger (formatted outputs)
     msg_logger = MessageLogger(opt, current_iter, tb_logger)
 
@@ -231,8 +240,7 @@ def main():
                          "Supported ones are: None, 'cuda', 'cpu'.")
 
     # training
-    logger.info(
-        f'Start training from epoch: {start_epoch}, iter: {current_iter}')
+    logger.info(f'Start training from epoch: {start_epoch}, iter: {current_iter}')
     data_time, iter_time = time.time(), time.time()
     start_time = time.time()
 
@@ -268,8 +276,7 @@ def main():
                 current_iter, warmup_iter=opt['train'].get('warmup_iter', -1))
 
             # ------Progressive learning ---------------------
-            j = ((current_iter > groups) != True).nonzero()[
-                0]  # 根据当前的iter次数判断在哪个阶段
+            j = ((current_iter > groups) != True).nonzero()[0]  # 根据当前的iter次数判断在哪个阶段
             if len(j) == 0:
                 bs_j = len(groups) - 1
             else:
@@ -303,6 +310,19 @@ def main():
             # print(lq.shape)
             model.feed_train_data({'lq': lq, 'gt': gt})
             model.optimize_parameters(current_iter)
+            # if current_iter % 50 == 0:
+            #     for name, param in model.net_g.named_parameters():
+            #         # 仅检查 LoRA 相关参数
+            #         if 'lora' in name and 'weight' in name:
+            #             if param.grad is not None:
+            #                 grad_norm = param.grad.norm().item()
+            #                 # 如果 norm > 0，说明该参数有梯度更新
+            #                 if grad_norm > 1e-7:
+            #                     logger.info(f"DEBUG: {name} | Grad Norm: {grad_norm:.6f}")
+            #                 else:
+            #                     logger.warning(f"WARNING: {name} has zero gradient!")
+            #             else:
+            #                 logger.warning(f"WARNING: {name} has NO gradient (is None)!")
 
             iter_time = time.time() - iter_time
             # log
@@ -358,11 +378,9 @@ def main():
     logger.info('Save the latest model.')
     model.save(epoch=-1, current_iter=-1)  # -1 stands for the latest
     if opt.get('val') is not None:
-        model.validation(val_loader, current_iter, tb_logger,
-                         opt['val']['save_img'])
+        model.validation(val_loader, current_iter, tb_logger, opt['val']['save_img'])
     if tb_logger:
         tb_logger.close()
-
 
 if __name__ == '__main__':
     main()

@@ -17,15 +17,14 @@ import os
 import random
 import numpy as np
 import cv2
+import torch.nn as nn
 import torch.nn.functional as F
 from functools import partial
-
 try :
     from torch.cuda.amp import autocast, GradScaler
     load_amp = True
 except:
     load_amp = False
-
 
 class Mixing_Augment:
     def __init__(self, mixup_beta, use_identity, device):
@@ -57,10 +56,7 @@ class Mixing_Augment:
             target, input_ = self.augments[augment](target, input_)
         return target, input_
 
-
 class ImageCleanModel(BaseModel):
-    """Base Deblur model for single image deblur."""
-
     def __init__(self, opt):
         super(ImageCleanModel, self).__init__(opt)
 
@@ -75,22 +71,19 @@ class ImageCleanModel(BaseModel):
         # define network
         self.mixing_flag = self.opt['train']['mixing_augs'].get('mixup', False)
         if self.mixing_flag:
-            mixup_beta = self.opt['train']['mixing_augs'].get(
-                'mixup_beta', 1.2)
-            use_identity = self.opt['train']['mixing_augs'].get(
-                'use_identity', False)
-            self.mixing_augmentation = Mixing_Augment(
-                mixup_beta, use_identity, self.device)
+            mixup_beta = self.opt['train']['mixing_augs'].get('mixup_beta', 1.2)
+            use_identity = self.opt['train']['mixing_augs'].get('use_identity', False)
+            self.mixing_augmentation = Mixing_Augment(mixup_beta, use_identity, self.device)
 
         self.net_g = define_network(deepcopy(opt['network_g']))
         self.net_g = self.model_to_device(self.net_g)
-        # self.print_network(self.net_g)
 
         # load pretrained models
         load_path = self.opt['path'].get('pretrain_network_g', None)
         if load_path is not None:
-            self.load_network(self.net_g, load_path,
-                              self.opt['path'].get('strict_load_g', True), param_key=self.opt['path'].get('param_key', 'params'))
+            self.load_network(self.net_g, load_path, self.opt['path'].get('strict_load_g', True), param_key=self.opt['path'].get('param_key', 'params'))
+        # === [执行 LoRA 参数冻结策略] ===
+        self.freeze_backbone_unfreeze_lora()
 
         if self.is_train:
             self.init_training_settings()
@@ -102,36 +95,72 @@ class ImageCleanModel(BaseModel):
         self.ema_decay = train_opt.get('ema_decay', 0)
         if self.ema_decay > 0:
             logger = get_root_logger()
-            logger.info(
-                f'Use Exponential Moving Average with decay: {self.ema_decay}')
-            # define network net_g with Exponential Moving Average (EMA)
-            # net_g_ema is used only for testing on one GPU and saving
-            # There is no need to wrap with DistributedDataParallel
-            self.net_g_ema = define_network(self.opt['network_g']).to(
-                self.device)
+            logger.info(f'Use Exponential Moving Average with decay: {self.ema_decay}')
+            self.net_g_ema = define_network(self.opt['network_g']).to(self.device)
             # load pretrained model
             load_path = self.opt['path'].get('pretrain_network_g', None)
             if load_path is not None:
-                self.load_network(self.net_g_ema, load_path,
-                                  self.opt['path'].get('strict_load_g',
-                                                       True), 'params_ema')
+                self.load_network(self.net_g_ema, load_path, self.opt['path'].get('strict_load_g', True), 'params_ema')
             else:
                 self.model_ema(0)  # copy net_g weight
             self.net_g_ema.eval()
 
-        # define losses
+        # === [核心修改：支持多损失函数的统一加载] ===
+        self.loss_funcs = nn.ModuleDict()
+
+        # 1. 像素级损失 (L1, MSE, Charbonnier 等)
         if train_opt.get('pixel_opt'):
             pixel_type = train_opt['pixel_opt'].pop('type')
-            cri_pix_cls = getattr(loss_module, pixel_type)  #根据pop出来的loss_type找到对应的loss函数
-            self.cri_pix = cri_pix_cls(**train_opt['pixel_opt']).to(
-                self.device)      #如何写 weighted loss 呢？传参构造Loss函数
-        else:
-            raise ValueError('pixel loss are None.')
+            cri_pix_cls = getattr(loss_module, pixel_type)
+            self.loss_funcs['l_pix'] = cri_pix_cls(**train_opt['pixel_opt']).to(self.device)
+            
+        # 2. 结构相似性损失 (SSIMLoss)
+        if train_opt.get('ssim_opt'):
+            ssim_type = train_opt['ssim_opt'].pop('type')
+            cri_ssim_cls = getattr(loss_module, ssim_type)
+            self.loss_funcs['l_ssim'] = cri_ssim_cls(**train_opt['ssim_opt']).to(self.device)
+
+        # 3. 感知损失 (VGGLoss)
+        if train_opt.get('perceptual_opt'):
+            percep_type = train_opt['perceptual_opt'].pop('type')
+            cri_percep_cls = getattr(loss_module, percep_type)
+            self.loss_funcs['l_percep'] = cri_percep_cls(**train_opt['perceptual_opt']).to(self.device)
+
+        # 4. 频域损失 (FrequencyLoss)
+        if train_opt.get('freq_opt'):
+            freq_type = train_opt['freq_opt'].pop('type')
+            cri_freq_cls = getattr(loss_module, freq_type)
+            self.loss_funcs['l_freq'] = cri_freq_cls(**train_opt['freq_opt']).to(self.device)
+
+        if len(self.loss_funcs) == 0:
+            raise ValueError('No loss functions defined. Please check your training config.')
 
         # set up optimizers and schedulers
         self.setup_optimizers()
         self.setup_schedulers()
 
+    #####LoRA微调策略：冻结主干网络，仅释放名字中包含 'lora' 的参数进行微调
+    def freeze_backbone_unfreeze_lora(self):
+        """
+        冻结主干网络，仅释放名字中包含 'lora' 的参数进行微调。
+        """
+        logger = get_root_logger()
+        logger.info("Applying LoRA Finetuning Strategy: Freezing backbone...")
+        
+        frozen_params_count = 0
+        trainable_params_count = 0
+        
+        for name, param in self.net_g.named_parameters():
+            if 'lora_' in name:
+                param.requires_grad = True
+                trainable_params_count += param.numel()
+            else:
+                param.requires_grad = False
+                frozen_params_count += param.numel()
+                
+        logger.info(f"Frozen parameters: {frozen_params_count / 1e6:.2f} M")
+        logger.info(f"Trainable LoRA parameters: {trainable_params_count / 1e6:.2f} M")
+    
     def setup_optimizers(self):
         train_opt = self.opt['train']
         optim_params = []
@@ -145,14 +174,11 @@ class ImageCleanModel(BaseModel):
 
         optim_type = train_opt['optim_g'].pop('type')
         if optim_type == 'Adam':
-            self.optimizer_g = torch.optim.Adam(
-                optim_params, **train_opt['optim_g'])
+            self.optimizer_g = torch.optim.Adam(optim_params, **train_opt['optim_g'])
         elif optim_type == 'AdamW':
-            self.optimizer_g = torch.optim.AdamW(
-                optim_params, **train_opt['optim_g'])
+            self.optimizer_g = torch.optim.AdamW(optim_params, **train_opt['optim_g'])
         else:
-            raise NotImplementedError(
-                f'optimizer {optim_type} is not supperted yet.')
+            raise NotImplementedError(f'optimizer {optim_type} is not supperted yet.')
         self.optimizers.append(self.optimizer_g)
 
     def feed_train_data(self, data):
@@ -179,20 +205,37 @@ class ImageCleanModel(BaseModel):
             self.output = preds[-1]
 
             loss_dict = OrderedDict()
-            # pixel loss
-            l_pix = 0.
+            total_loss = 0.
+
+            # === [核心修改：迭代多阶段预测并累加所有启用的损失] ===
             for pred in preds:
-                l_pix += self.cri_pix(pred, self.gt) #此处统计batch的loss
+                if 'l_pix' in self.loss_funcs:
+                    l_pix = self.loss_funcs['l_pix'](pred, self.gt)
+                    total_loss += l_pix
+                    loss_dict['l_pix'] = loss_dict.get('l_pix', 0) + l_pix.detach()
+                
+                if 'l_ssim' in self.loss_funcs:
+                    l_ssim = self.loss_funcs['l_ssim'](pred, self.gt)
+                    total_loss += l_ssim
+                    loss_dict['l_ssim'] = loss_dict.get('l_ssim', 0) + l_ssim.detach()
 
-            loss_dict['l_pix'] = l_pix
+                if 'l_percep' in self.loss_funcs:
+                    l_percep = self.loss_funcs['l_percep'](pred, self.gt)
+                    total_loss += l_percep
+                    loss_dict['l_percep'] = loss_dict.get('l_percep', 0) + l_percep.detach()
+                    
+                if 'l_freq' in self.loss_funcs:
+                    l_freq = self.loss_funcs['l_freq'](pred, self.gt)
+                    total_loss += l_freq
+                    loss_dict['l_freq'] = loss_dict.get('l_freq', 0) + l_freq.detach()
 
-        self.amp_scaler.scale(l_pix).backward()
-        self.amp_scaler.unscale_(self.optimizer_g) # 在梯度裁剪前先unscale梯度
-        # l_pix.backward()
+        # 反向传播使用统一的 total_loss
+        self.amp_scaler.scale(total_loss).backward()
+        self.amp_scaler.unscale_(self.optimizer_g)
 
         if self.opt['train']['use_grad_clip']:
             torch.nn.utils.clip_grad_norm_(self.net_g.parameters(), 0.01)
-        # self.optimizer_g.step()
+
         self.amp_scaler.step(self.optimizer_g)
         self.amp_scaler.update()
 
@@ -212,8 +255,7 @@ class ImageCleanModel(BaseModel):
         img = F.pad(self.lq, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         self.nonpad_test(img)
         _, _, h, w = self.output.size()
-        self.output = self.output[:, :, 0:h -
-                                  mod_pad_h * scale, 0:w - mod_pad_w * scale]
+        self.output = self.output[:, :, 0:h -mod_pad_h * scale, 0:w - mod_pad_w * scale]
 
     def nonpad_test(self, img=None):
         if img is None:
@@ -240,26 +282,20 @@ class ImageCleanModel(BaseModel):
         else:
             return 0.
 
-    def nondist_validation(self, dataloader, current_iter, tb_logger,
-                           save_img, rgb2bgr, use_image):
+    def nondist_validation(self, dataloader, current_iter, tb_logger, save_img, rgb2bgr, use_image):
         dataset_name = dataloader.dataset.opt['name']
         with_metrics = self.opt['val'].get('metrics') is not None
         if with_metrics:
-            self.metric_results = {
-                metric: 0
+            self.metric_results = {metric: 0
                 for metric in self.opt['val']['metrics'].keys()
             }
-        # pbar = tqdm(total=len(dataloader), unit='image')
-
         window_size = self.opt['val'].get('window_size', 0)
-
         if window_size:
             test = partial(self.pad_test, window_size)
         else:
             test = self.nonpad_test
 
         cnt = 0
-
         for idx, val_data in enumerate(dataloader):
             img_name = osp.splitext(osp.basename(val_data['lq_path'][0]))[0]
             self.feed_data(val_data)
@@ -277,24 +313,12 @@ class ImageCleanModel(BaseModel):
             torch.cuda.empty_cache()
 
             if save_img:
-
                 if self.opt['is_train']:
-
-                    save_img_path = osp.join(self.opt['path']['visualization'],
-                                             img_name,
-                                             f'{img_name}_{current_iter}.png')
-
-                    save_gt_img_path = osp.join(self.opt['path']['visualization'],
-                                                img_name,
-                                                f'{img_name}_{current_iter}_gt.png')
+                    save_img_path = osp.join(self.opt['path']['visualization'], img_name, f'{img_name}_{current_iter}.png')
+                    save_gt_img_path = osp.join(self.opt['path']['visualization'], img_name, f'{img_name}_{current_iter}_gt.png')
                 else:
-
-                    save_img_path = osp.join(
-                        self.opt['path']['visualization'], dataset_name,
-                        f'{img_name}.png')
-                    save_gt_img_path = osp.join(
-                        self.opt['path']['visualization'], dataset_name,
-                        f'{img_name}_gt.png')
+                    save_img_path = osp.join(self.opt['path']['visualization'], dataset_name, f'{img_name}.png')
+                    save_gt_img_path = osp.join(self.opt['path']['visualization'], dataset_name, f'{img_name}_gt.png')
 
                 imwrite(sr_img, save_img_path)
                 imwrite(gt_img, save_gt_img_path)
@@ -305,13 +329,11 @@ class ImageCleanModel(BaseModel):
                 if use_image:
                     for name, opt_ in opt_metric.items():
                         metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(sr_img, gt_img, **opt_)
+                        self.metric_results[name] += getattr(metric_module, metric_type)(sr_img, gt_img, **opt_)
                 else:
                     for name, opt_ in opt_metric.items():
                         metric_type = opt_.pop('type')
-                        self.metric_results[name] += getattr(
-                            metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
+                        self.metric_results[name] += getattr(metric_module, metric_type)(visuals['result'], visuals['gt'], **opt_)
 
             cnt += 1
 
@@ -321,8 +343,7 @@ class ImageCleanModel(BaseModel):
                 self.metric_results[metric] /= cnt
                 current_metric = self.metric_results[metric]
 
-            self._log_validation_metric_values(current_iter, dataset_name,
-                                               tb_logger)
+            self._log_validation_metric_values(current_iter, dataset_name, tb_logger)
         return current_metric
 
     def _log_validation_metric_values(self, current_iter, dataset_name,
