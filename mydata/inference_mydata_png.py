@@ -82,7 +82,7 @@ Retinexformer（LOL-v1 预训练权重）进行增强推理，输出增强后的
   --output_dir      增强结果输出目录，默认 results/mydata_png/
   --opt             模型配置 YAML，默认 Options/RetinexFormer_LOL_v1.yml
   --weights         预训练权重，默认 pretrained_weights/LOL_v1.pth
-  --gpus            GPU 编号，默认 0；无 GPU 时自动回退 CPU
+  --gpus            CUDA GPU 编号，默认 0；Mac 上自动使用 MPS，否则回退 CPU
   --self_ensemble   启用自集成测试策略（可选，更慢）
 
 注意
@@ -155,7 +155,7 @@ def parse_args() -> argparse.Namespace:
         "--gpus",
         type=str,
         default="0",
-        help="CUDA device id(s), e.g. 0",
+        help="CUDA device id(s), e.g. 0 (ignored on Mac MPS / CPU)",
     )
     parser.add_argument(
         "--self_ensemble",
@@ -163,6 +163,23 @@ def parse_args() -> argparse.Namespace:
         help="Use self-ensemble for better results (slower).",
     )
     return parser.parse_args()
+
+
+def resolve_device(gpus: str) -> torch.device:
+    """Select device: CUDA (unchanged) > Apple MPS > CPU."""
+    if torch.cuda.is_available():
+        os.environ["CUDA_VISIBLE_DEVICES"] = gpus
+        return torch.device("cuda")
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
+
+def empty_device_cache(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    elif device.type == "mps" and hasattr(torch, "mps"):
+        torch.mps.empty_cache()
 
 
 def collect_input_images(input_dir: Path) -> list[Path]:
@@ -268,9 +285,12 @@ def run_model(
     return torch.clamp(restored[:, :, :h, :w], 0, 1)
 
 
-def build_model(opt_path: Path, weights_path: Path, device: str) -> nn.Module:
+def build_model(opt_path: Path, weights_path: Path, device: torch.device) -> nn.Module:
     opt = parse(str(opt_path), is_train=False)
     opt["dist"] = False
+    # basicsr 根据 num_gpu 决定是否走 CUDA；非 CUDA 时必须置 0，避免 Mac 上触发 cuda
+    if device.type != "cuda":
+        opt["num_gpu"] = 0
 
     yaml_cfg = yaml.load(open(opt_path, mode="r"), Loader=yaml.SafeLoader)
     yaml_cfg["network_g"].pop("type", None)
@@ -285,7 +305,8 @@ def build_model(opt_path: Path, weights_path: Path, device: str) -> nn.Module:
         model.load_state_dict(state_dict)
 
     model.to(device)
-    model = nn.DataParallel(model)
+    if device.type == "cuda":
+        model = nn.DataParallel(model)
     model.eval()
     return model
 
@@ -305,8 +326,7 @@ def main() -> int:
         print(f"[ERROR] config not found: {args.opt}")
         return 1
 
-    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpus
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = resolve_device(args.gpus)
     print(f"Using device: {device}")
     print(f"Loading weights: {args.weights}")
 
@@ -345,8 +365,7 @@ def main() -> int:
                     )
                 )
 
-            if device == "cuda":
-                torch.cuda.empty_cache()
+            empty_device_cache(device)
 
     print(f"\nSaved {len(image_paths)} enhanced image(s) to: {output_dir}")
     if psnr_values:
