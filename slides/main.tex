@@ -1,71 +1,322 @@
+% !TEX program = xelatex
+% !TEX encoding = UTF-8
 \documentclass[aspectratio=169,10pt]{beamer}
 
-% 主题（可换成 Madrid, Berlin, Copenhagen 等）
 \usetheme{Madrid}
 \usecolortheme{default}
 
-% 中文支持（XeLaTeX / LuaLaTeX）
-\usepackage{ctex}
+% 必须用 XeLaTeX 编译；pdflatex 无法加载 mac 字体集
+\usepackage[UTF8, fontset=fandol]{ctex}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning}
 
-\title{RetinexFormer}
-\subtitle{Wide-Range Low-Light Image Enhancement}
-\author{Your Name}
+\graphicspath{{../results/}{../mydata_png/}{figures/}}
+
+\newcommand{\maybeincludegraphics}[2][width=\linewidth]{%
+  \IfFileExists{#2}{%
+    \includegraphics[#1]{#2}%
+  }{%
+    \fbox{\parbox[c][2.2cm][c]{0.9\linewidth}{\centering\scriptsize 待插入图像\\ \texttt{#2}}}%
+  }%
+}
+
+\title{RetinexFormer 复现与改进}
+\subtitle{计算摄像学大作业 · 5 分钟汇报}
+\author{小组成员姓名}
 \institute{Your Institution}
 \date{\today}
 
 \begin{document}
 
+% ------------------------------------------------------------------ 1. 首页
 \begin{frame}
   \titlepage
 \end{frame}
 
-\begin{frame}{Outline}
-  \tableofcontents
+% ------------------------------------------------------------------ 2. 问题与任务
+\begin{frame}{问题与任务}
+  \textbf{背景：}低光照图像存在亮度不足、噪声放大、细节丢失等问题，增强算法需兼顾提亮与保真。
+
+  \vspace{0.6em}
+  \textbf{本作业工作：}
+  \begin{enumerate}
+    \item \textbf{复现} RetinexFormer，在 5 个公开基准数据集上验证
+    \item \textbf{自采验证}：两类场景（极限暗光纹理 / 高反差复杂光源），DNG/JPG 实拍数据
+    \item \textbf{改进}：传统 baseline 对比 + 针对自采场景的后训练计划
+  \end{enumerate}
 \end{frame}
 
-\section{Introduction}
+% ------------------------------------------------------------------ 3. Retinex 理论
+\begin{frame}{Retinex 理论}
+  \begin{columns}[T]
+    \column{0.52\textwidth}
+    \textbf{核心分解：}
+    \[
+      I(x,y) = R(x,y) \odot L(x,y)
+    \]
+    \begin{itemize}
+      \item $I$：观测图像
+      \item $L$：光照（Illumination），缓慢变化
+      \item $R$：反射率（Reflectance），承载纹理与颜色
+    \end{itemize}
+    \vspace{0.5em}
+    \small 思路：先估计并校正光照，再恢复反射细节——RetinexFormer 将此过程神经网络化。
 
-\begin{frame}{Introduction}
-  \begin{itemize}
-    \item RetinexFormer：宽动态范围低光照图像增强
-    \item NTIRE 2024 Low Light Enhancement Challenge 第二名
-    \item 支持 15+ 基准数据集与高分辨率（最高 4000×6000）推理
-  \end{itemize}
+    \column{0.46\textwidth}
+    \centering
+    \begin{tikzpicture}[
+      box/.style={draw, rounded corners, minimum width=2.6cm, minimum height=0.75cm, align=center, font=\small},
+      arr/.style={-{Stealth[length=2mm]}, thick}
+    ]
+      \node[box, fill=blue!8] (I) at (0,2) {低光输入 $I$};
+      \node[box, fill=yellow!15] (L) at (0,0.8) {光照 $L$};
+      \node[box, fill=green!10] (R) at (0,-0.4) {反射 $R$};
+      \node[box, fill=orange!12] (O) at (0,-1.8) {增强输出};
+      \draw[arr] (I) -- (L) node[midway, right, font=\scriptsize] {估计};
+      \draw[arr] (I) -- (R) node[midway, left, font=\scriptsize] {分解};
+      \draw[arr] (L) -- (O);
+      \draw[arr] (R) -- (O);
+    \end{tikzpicture}
+  \end{columns}
 \end{frame}
 
-\section{Method}
-
-\begin{frame}{Method Overview}
-  % \includegraphics[width=0.85\linewidth]{figures/overview.pdf}
-  \begin{center}
-    \textit{（在此插入方法示意图）}
-  \end{center}
-\end{frame}
-
-\section{Experiments}
-
-\begin{frame}{Experiments}
-  \begin{itemize}
-    \item 实验设置
-    \item 定量结果
-    \item 定性对比
-  \end{itemize}
-\end{frame}
-
-\section{Conclusion}
-
-\begin{frame}{Conclusion}
-  \begin{itemize}
-    \item 总结主要贡献
-    \item 未来工作
-  \end{itemize}
-
-  \vspace{1em}
+% ------------------------------------------------------------------ 4. 模型结构
+\begin{frame}{模型结构}
   \centering
-  Thank you!
+  \begin{tikzpicture}[
+    box/.style={draw, rounded corners, minimum height=0.85cm, align=center, font=\small, inner sep=4pt},
+    arr/.style={-{Stealth[length=2mm]}, thick}
+  ]
+    \node[box, fill=blue!10, minimum width=2.2cm] (in) {低光输入};
+    \node[box, fill=yellow!15, minimum width=2.8cm, right=0.55cm of in] (est) {Illumination\\Estimator};
+    \node[box, fill=green!10, minimum width=2.6cm, right=0.55cm of est] (den) {Denoiser\\(U-Net + IGAB)};
+    \node[box, fill=orange!12, minimum width=2.2cm, right=0.55cm of den] (out) {高清输出};
+
+    \node[box, fill=yellow!8, minimum width=2.4cm, below=0.65cm of est] (fea) {\scriptsize illu\_map / illu\_fea};
+
+    \draw[arr] (in) -- (est);
+    \draw[arr] (est) -- (den);
+    \draw[arr] (den) -- (out);
+    \draw[arr] (est) -- (fea);
+    \draw[arr] (fea) -- (den);
+
+    \node[align=left, font=\scriptsize, below=0.35cm of fea] (igmsa) {
+      \textbf{IG-MSA：}光照特征与 Value 哈达玛积 $\Rightarrow$ 暗区自适应去噪
+    };
+  \end{tikzpicture}
+
+  \vspace{0.4em}
+  \small
+  Estimator：4 通道输入（RGB + 亮度均值）$\rightarrow$ 物理提亮先验；
+  Denoiser：Encoder--Decoder + 跳跃连接，修复提亮带来的噪声与伪影。
+\end{frame}
+
+% ------------------------------------------------------------------ 5. 公开数据集复现与 Self-ensemble
+\begin{frame}{公开数据集复现与 Self-ensemble}
+  \begin{columns}[T]
+    \column{0.58\textwidth}
+    \scriptsize
+    \renewcommand{\arraystretch}{1.15}
+    \begin{tabular}{lcccc}
+      \toprule
+      \multirow{2}{*}{数据集} & \multicolumn{2}{c}{无 SE} & \multicolumn{2}{c}{有 SE} \\
+      \cmidrule(lr){2-3}\cmidrule(lr){4-5}
+      & PSNR & SSIM & PSNR & SSIM \\
+      \midrule
+      LOL\_V1      & 25.15 & 0.845 & 25.27 & 0.853 \\
+      LOL\_V2\_real & 22.80 & 0.840 & 22.82 & 0.850 \\
+      LOL\_V2\_syn  & 25.67 & 0.930 & 25.83 & 0.934 \\
+      FiveK        & 24.94 & 0.907 & 24.97 & 0.909 \\
+      SID          & 24.44 & 0.680 & 24.36 & 0.681 \\
+      \bottomrule
+    \end{tabular}
+    \vspace{0.3em}
+    \tiny SE = Self-ensemble；5 个公开集复现成功
+
+    \column{0.40\textwidth}
+    \small
+    \textbf{Self-ensemble 策略}
+    \begin{itemize}
+      \item 测试时对输入做 8 种几何变换（翻转 / 旋转组合）
+      \item 分别推理后逆变换，对 8 路输出取平均
+      \item 以约 $8\times$ 推理时间换取更稳定结果
+    \end{itemize}
+    \vspace{0.3em}
+    \scriptsize
+    \textbf{提升小结：}LOL 系列 SSIM +0.005$\sim$0.01；\\
+    高分辨率集收益较小，但无明显负效应
+  \end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------ 6. 自采数据：流程与结果
+\begin{frame}{自采数据：流程与结果}
+  \vspace{-0.3em}
+  \begin{columns}[T]
+    \column{0.38\textwidth}
+    \scriptsize
+    \textbf{数据采集}
+    \begin{tabular}{lcc}
+      \toprule
+      场景 & 有 GT & 无 GT \\
+      \midrule
+      极限暗光纹理   & 9 对 & 4 张 \\
+      高反差复杂光源 & 5 对 & --- \\
+      \bottomrule
+    \end{tabular}
+
+    \vspace{0.25em}
+    \textbf{流程：}\\
+    DNG/JPG $\to$ PNG $\to$ 增强结果
+
+    \column{0.60\textwidth}
+    \tiny
+    \renewcommand{\arraystretch}{1.05}
+    \begin{tabular}{lcccc}
+      \toprule
+      权重 & \multicolumn{2}{c}{无 SE} & \multicolumn{2}{c}{有 SE} \\
+      \cmidrule(lr){2-3}\cmidrule(lr){4-5}
+      & PSNR & SSIM & PSNR & SSIM \\
+      \midrule
+      LOL\_v1       & 15.82 & 0.608 & 15.91 & 0.622 \\
+      LOL\_v2\_real & 14.52 & 0.606 & 14.43 & 0.614 \\
+      LOL\_v2\_syn  & 19.50 & 0.576 & 19.48 & 0.586 \\
+      FiveK         & 16.30 & \textbf{0.206} & 16.28 & 0.206 \\
+      NTIRE         & 16.30 & 0.563 & 16.29 & 0.566 \\
+      SDSD\_indoor  & 18.87 & 0.604 & 19.07 & 0.620 \\
+      SDSD\_outdoor & 19.08 & \textbf{0.643} & 19.20 & 0.646 \\
+      SID / SMID    & 16.3 / 18.8 & 0.64 / 0.45 & --- & --- \\
+      \bottomrule
+    \end{tabular}
+  \end{columns}
+
+  \vspace{0.15em}
+  \begin{columns}[T]
+    \column{0.32\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/1.png}
+    \tiny 输入（极限暗光）
+    \column{0.32\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth]{../results/mydata_png/jpg/with_targets/extreme_lowlight_texture/input/1.png}
+    \tiny RetinexFormer 输出
+    \column{0.32\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/1.png}
+    \tiny GT（参考）
+  \end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------ 7. 分析：Domain Gap 与传统方法对比
+\begin{frame}{分析：Domain Gap 与传统方法对比}
+  \small
+  \textbf{Domain Gap：}同一 mydata，不同 checkpoint 指标差异极大
+  \begin{itemize}
+    \item FiveK 权重：SSIM $\approx$ 0.21 \quad vs \quad SDSD\_outdoor：SSIM $\approx$ 0.65
+    \item LOL\_v1 权重：PSNR $\approx$ 15.8 dB（公开集 25+ dB）$\Rightarrow$ 泛化不足
+  \end{itemize}
+
+  \vspace{0.3em}
+  \scriptsize
+  \renewcommand{\arraystretch}{1.12}
+  \begin{tabular}{p{1.6cm}p{2.4cm}p{2.6cm}p{3.8cm}}
+    \toprule
+    算法 & 核心思想 & 优点 & 面对 LOL 的痛点 \\
+    \midrule
+    Gamma &
+    全局幂函数映射 &
+    极快，整体提亮明显 &
+    亮部过曝，暗部噪点放大 \\
+    CLAHE &
+    分块直方图均衡 + clip\_limit &
+    局部细节好，抑制噪声 &
+    极暗场景提亮幅度有限 \\
+    Gamma{+}CLAHE &
+    全局拉伸 + HSV 润色 &
+    兼顾亮度与纹理 &
+    无法消除红绿彩噪 \\
+    \bottomrule
+  \end{tabular}
+
+  \vspace{0.35em}
+  \small
+  \textbf{结论：}传统方法（\texttt{Enhancement/traditional\_baseline.py}）可作 baseline，\\
+  彩噪与感知质量瓶颈仍需 RetinexFormer 等深度模型。
+\end{frame}
+
+% ------------------------------------------------------------------ 8. 改进：特定场景后训练计划
+\begin{frame}{改进：特定场景后训练计划}
+  \small
+  \textbf{动机：}传统方法 + 零样本预训练均难以覆盖自采两类场景
+
+  \vspace{0.3em}
+  \begin{columns}[T]
+    \column{0.48\textwidth}
+    \textbf{目标数据}
+    \begin{itemize}
+      \item 极限暗光纹理类：9 对 GT
+      \item 高反差复杂光源类：5 对 GT
+    \end{itemize}
+
+    \textbf{模块分工}
+    \begin{itemize}
+      \item Estimator：物理光照估计（较通用）
+      \item Denoiser：场景相关纹理 / 噪声修复
+    \end{itemize}
+
+    \column{0.50\textwidth}
+    \textbf{微调策略}
+    \begin{itemize}
+      \item \textbf{冻结} \texttt{self.estimator}
+      \item \textbf{仅训练} Denoiser（去噪器）
+      \item 解析权重 name 选择性冻结参数
+      \item 训练入口：\texttt{image\_restoration\_model.py}
+    \end{itemize}
+
+    \vspace{0.2em}
+    \textbf{预期目标：}分别在两类场景 fine-tune，\\
+    缩小 domain gap，提升 mydata PSNR / SSIM
+
+    \vspace{0.2em}
+    \textit{\scriptsize 状态：初步计划，进行中}
+  \end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------ 9. 总结与分工
+\begin{frame}{总结与分工}
+  \small
+  \textbf{工作总结}
+  \begin{itemize}
+    \item 成功复现 RetinexFormer，5 个公开集指标与论文趋势一致
+    \item 搭建 DNG/JPG 自采 pipeline，揭示预训练权重的 domain gap
+    \item 实现 Gamma / CLAHE 传统 baseline，明确深度模型优势与改进方向
+    \item 制定「冻结 Estimator、微调 Denoiser」的场景化后训练方案
+  \end{itemize}
+
+  \vspace{0.5em}
+  \textbf{分工（请按实际填写）}
+  \begin{tabular}{ll}
+    \toprule
+    成员 & 主要负责 \\
+    \midrule
+    A & 代码复现、公开集评测 \\
+    B & 数据采集、mydata 推理与指标 \\
+    C & 传统 baseline、后训练方案 \\
+    \bottomrule
+  \end{tabular}
+\end{frame}
+
+% ------------------------------------------------------------------ 10. 感谢倾听
+\begin{frame}[plain,c]
+  \centering
+  \vspace{2em}
+  {\LARGE 感谢倾听！}
+
+  \vspace{1.5em}
+  \large 欢迎提问与讨论
 \end{frame}
 
 \end{document}
