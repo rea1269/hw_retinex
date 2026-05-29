@@ -2,11 +2,46 @@
 % !TEX encoding = UTF-8
 \documentclass[aspectratio=169,10pt]{beamer}
 
-\usetheme{Madrid}
-\usecolortheme{default}
+% Metropolis：现代 Keynote 风（比 Madrid 更简洁、更有科技感）
+% 可选：appendixnumberbeamer 让附录不计入总页数
+\usetheme[progressbar=frametitle,block=fill,numbering=fraction]{metropolis}
 
-% 必须用 XeLaTeX 编译；pdflatex 无法加载 mac 字体集
-\usepackage[UTF8, fontset=fandol]{ctex}
+% 科技风配色：深 slate 文字 + 青色强调（类似 AI/CV 顶会汇报）
+\definecolor{TechDark}{HTML}{0f172a}
+\definecolor{TechAccent}{HTML}{0891b2}
+\definecolor{TechAccentLight}{HTML}{22d3ee}
+\setbeamercolor{normal text}{fg=TechDark,bg=white}
+\setbeamercolor{alerted text}{fg=TechAccent}
+\setbeamercolor{example text}{fg=TechAccentLight}
+\setbeamercolor{progress bar}{fg=TechAccent,bg=TechDark!12}
+\setbeamercolor{block title}{bg=TechDark!6, fg=TechDark}
+\setbeamercolor{block body}{bg=TechDark!3}
+
+% 必须用 XeLaTeX 编译
+\usepackage[UTF8, fontset=none]{ctex}
+\usepackage{fontspec}
+% ── 正文字体（Beamer 全程 sans-serif，中英文分开指定）──
+% 西文正文：Segoe UI Semibold（投影更清晰；不是 Consolas）
+\setsansfont{Segoe UI}[
+  UprightFont = Segoe UI Semibold,
+  BoldFont = Segoe UI Bold,
+  ItalicFont = Segoe UI Italic,
+  BoldItalicFont = Segoe UI Bold Italic,
+]
+% 中文正文：微软雅黑 UI（笔画比 Noto Sans SC Regular 更粗）
+\setCJKmainfont{Microsoft YaHei UI}[
+  BoldFont = Microsoft YaHei UI Bold,
+]
+\setCJKsansfont{Microsoft YaHei UI}[
+  BoldFont = Microsoft YaHei UI Bold,
+]
+% ── 等宽字体：仅 \texttt / \path / \verb（代码路径），不是幻灯片正文 ──
+% 西文代码：Consolas；中文代码：雅黑（Consolas 无汉字）
+\setmonofont{Consolas}[
+  BoldFont = Consolas Bold,
+  Scale = 0.92,
+]
+\setCJKmonofont{Microsoft YaHei UI}[Scale = 0.92]
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
@@ -14,20 +49,20 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta, positioning}
 
-\graphicspath{{../results/}{../mydata_png/}{figures/}}
+\graphicspath{{../results/}{../mydata_png/}{figures/}{img/}}
 
 \newcommand{\maybeincludegraphics}[2][width=\linewidth]{%
   \IfFileExists{#2}{%
     \includegraphics[#1]{#2}%
   }{%
-    \fbox{\parbox[c][2.2cm][c]{0.9\linewidth}{\centering\scriptsize 待插入图像\\ \texttt{#2}}}%
+    \fbox{\parbox[c][2.2cm][c]{0.9\linewidth}{\centering\scriptsize 待插入图像\\ \path{#2}}}%
   }%
 }
 
-\title{RetinexFormer 复现与改进}
-\subtitle{计算摄像学大作业 · 5 分钟汇报}
-\author{小组成员姓名}
-\institute{Your Institution}
+\title[RetinexFormer]{RetinexFormer 复现与改进}
+\subtitle{计算摄像学大作业汇报}
+\author{潘嘉铭 \and 胡林敏 \and 石杨子然}
+\institute{北京大学 \\ 信科学院}
 \date{\today}
 
 \begin{document}
@@ -46,7 +81,7 @@
   \begin{enumerate}
     \item \textbf{复现} RetinexFormer，在 5 个公开基准数据集上验证
     \item \textbf{自采验证}：两类场景（极限暗光纹理 / 高反差复杂光源），DNG/JPG 实拍数据
-    \item \textbf{改进}：传统 baseline 对比 + 针对自采场景的后训练计划
+    \item \textbf{改进探索}：传统增强 baseline；LoRA 参数高效微调（LOL-v2 验证）
   \end{enumerate}
 \end{frame}
 
@@ -70,17 +105,82 @@
     \centering
     \begin{tikzpicture}[
       box/.style={draw, rounded corners, minimum width=2.6cm, minimum height=0.75cm, align=center, font=\small},
-      arr/.style={-{Stealth[length=2mm]}, thick}
+      arr/.style={-{Stealth[length=2mm]}, thick},
+      lbl/.style={font=\scriptsize, fill=white, inner sep=1pt}
     ]
-      \node[box, fill=blue!8] (I) at (0,2) {低光输入 $I$};
-      \node[box, fill=yellow!15] (L) at (0,0.8) {光照 $L$};
-      \node[box, fill=green!10] (R) at (0,-0.4) {反射 $R$};
-      \node[box, fill=orange!12] (O) at (0,-1.8) {增强输出};
-      \draw[arr] (I) -- (L) node[midway, right, font=\scriptsize] {估计};
-      \draw[arr] (I) -- (R) node[midway, left, font=\scriptsize] {分解};
-      \draw[arr] (L) -- (O);
+      % 呈菱形分布，错开横坐标
+      \node[box, fill=blue!8] (I) at (0,2.8) {低光输入 $I$};
+      \node[box, fill=yellow!15] (L) at (-1.8,1.4) {光照 $L$};
+      \node[box, fill=green!10] (R) at (1.8,1.4) {反射 $R$};
+      \node[box, fill=orange!12] (O) at (0,0) {增强输出};
+      
+      \draw[arr] (I) -- (L);
+      \draw[arr] (I) -- (R);
+      \draw[arr] (L) -- (O) node[midway, left=2pt, lbl] {提亮、去噪};
       \draw[arr] (R) -- (O);
     \end{tikzpicture}
+  \end{columns}
+\end{frame}
+
+% ------------------------------------------------------------------ 3.5 RetinexFormer 理论重构
+\begin{frame}{理论重构：为真实物理世界的「不完美」建模}
+  \small
+  \begin{columns}[T,onlytextwidth]
+    \column{0.54\textwidth}
+
+    \begin{block}{经典 Retinex 陷阱}
+      \centering
+      $I = R \odot L$
+      \vspace{0.35em}
+
+      \raggedright\footnotesize
+      假设世界是完美无噪的，导致提亮后噪点爆炸。
+    \end{block}
+
+    \vspace{0.3em}
+    \begin{block}{RetinexFormer 真实物理模型}
+      \centering
+      $I = (R + \hat{R}) \odot (L + \hat{L})$
+
+      \vspace{0.25em}
+      {\footnotesize $\Downarrow$ 引入提亮图 $\overline{L}$ 并化简}
+      \[
+        I_{lu} = I \odot \overline{L} = R + C
+      \]
+
+      \raggedright\footnotesize
+      $C$：\textbf{整体退化项}（高 ISO 噪点 + 光照色偏）
+    \end{block}
+
+    \vspace{0.35em}
+    \footnotesize
+    首次在 Retinex 模型中引入物理扰动项，精准锁定暗光场景下放大后的高 ISO 噪点与光照色偏。
+
+    \column{0.43\textwidth}
+    \centering
+    \begin{tikzpicture}[
+      box/.style={draw, rounded corners, minimum width=3.1cm, minimum height=0.65cm, align=center, font=\scriptsize},
+      arr/.style={-{Stealth[length=1.5mm]}, thick, TechAccent},
+      lbl/.style={font=\tiny, fill=white, inner sep=1.5pt, text=TechDark}
+    ]
+      \node[box, fill=blue!8] (I) at (0,2.4) {低光输入 $I$};
+      \node[box, fill=yellow!15] (Ilu) at (0,1.1) {$I_{lu} = I \odot \overline{L}$};
+      \node[box, fill=green!10] (R) at (0,-0.2) {清晰反射 $R$};
+      \draw[arr] (I) -- (Ilu);
+      \draw[arr] (Ilu) -- (R);
+      \node[lbl, anchor=west] at (0.12, 1.75) {Estimator};
+      \node[lbl, anchor=west] at (0.12, 0.45) {Denoiser};
+      % \node[font=\tiny, text=TechAccent, align=center] at (0,0.55) {（$C$ 被放大）};
+    \end{tikzpicture}
+
+    \vspace{0.4em}
+    \begin{block}{导向下一步架构}
+      \footnotesize
+      \begin{itemize}
+        \item \textbf{Estimator}：预测 $\overline{L}$，完成物理提亮
+        \item \textbf{Denoiser}：拟合残差，去除 $C$ 并恢复 $R$
+      \end{itemize}
+    \end{block}
   \end{columns}
 \end{frame}
 
@@ -96,7 +196,7 @@
     \node[box, fill=green!10, minimum width=2.6cm, right=0.55cm of est] (den) {Denoiser\\(U-Net + IGAB)};
     \node[box, fill=orange!12, minimum width=2.2cm, right=0.55cm of den] (out) {高清输出};
 
-    \node[box, fill=yellow!8, minimum width=2.4cm, below=0.65cm of est] (fea) {\scriptsize illu\_map / illu\_fea};
+    \node[box, fill=yellow!8, minimum width=2.5cm, below=0.65cm of est] (fea) {\scriptsize $\overline{L}$ \;/\; $F_{\mathrm{illu}}$};
 
     \draw[arr] (in) -- (est);
     \draw[arr] (est) -- (den);
@@ -105,14 +205,15 @@
     \draw[arr] (fea) -- (den);
 
     \node[align=left, font=\scriptsize, below=0.35cm of fea] (igmsa) {
-      \textbf{IG-MSA：}光照特征与 Value 哈达玛积 $\Rightarrow$ 暗区自适应去噪
+      \textbf{IG-MSA：}$F_{\mathrm{illu}}$ 与 Value 哈达玛积 $\Rightarrow$ 暗区自适应去噪
     };
   \end{tikzpicture}
 
   \vspace{0.4em}
   \small
-  Estimator：4 通道输入（RGB + 亮度均值）$\rightarrow$ 物理提亮先验；
-  Denoiser：Encoder--Decoder + 跳跃连接，修复提亮带来的噪声与伪影。
+  Estimator：4 通道输入（RGB + 亮度均值）$\rightarrow$ $\overline{L}$（提亮图）与 $F_{\mathrm{illu}}$（光照特征）；\\
+  Denoiser：Encoder--Decoder + 跳跃连接，修复 $\overline{L}$ 提亮带来的噪声与伪影。\\
+  \scriptsize IGAB 中 FeedForward 采用 $1{\times}1$ + $3{\times}3$ 深度可分离卷积，增强局部连续性与边缘保持。
 \end{frame}
 
 % ------------------------------------------------------------------ 5. 公开数据集复现与 Self-ensemble
@@ -134,8 +235,8 @@
       SID          & 24.44 & 0.680 & 24.36 & 0.681 \\
       \bottomrule
     \end{tabular}
-    \vspace{0.3em}
-    \tiny SE = Self-ensemble；5 个公开集复现成功
+    \tiny SE = Self-ensemble；5 个公开集复现成功。\\
+    SMID / SDSD / NTIRE 2024 因数据体量、文件损坏或链接失效未纳入公开集复现。
 
     \column{0.40\textwidth}
     \small
@@ -170,7 +271,12 @@
 
     \vspace{0.25em}
     \textbf{流程：}\\
-    DNG/JPG $\to$ PNG $\to$ 增强结果
+    {\footnotesize
+    实拍采集（DNG/JPG）
+    $\rightarrow$ 裁剪 / 缩放
+    $\rightarrow$ 格式转换（PNG）
+    $\rightarrow$ 模型推理
+    $\rightarrow$ 指标评测}
 
     \column{0.60\textwidth}
     \tiny
@@ -188,104 +294,79 @@
       NTIRE         & 16.30 & 0.563 & 16.29 & 0.566 \\
       SDSD\_indoor  & 18.87 & 0.604 & 19.07 & 0.620 \\
       SDSD\_outdoor & 19.08 & \textbf{0.643} & 19.20 & 0.646 \\
-      SID / SMID    & 16.3 / 18.8 & 0.64 / 0.45 & --- & --- \\
+      SID           & 16.27 & 0.638 & 16.36 & 0.649 \\
+      SMID          & 18.80 & 0.451 & 18.93 & 0.457 \\
       \bottomrule
     \end{tabular}
   \end{columns}
 
-  \vspace{0.15em}
+  \vspace{0.55em}
   \begin{columns}[T]
     \column{0.32\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/1.png}
+    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}
     \tiny 输入（极限暗光）
     \column{0.32\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../results/mydata_png/jpg/with_targets/extreme_lowlight_texture/input/1.png}
+    \maybeincludegraphics[width=\linewidth]{../results/mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}
     \tiny RetinexFormer 输出
     \column{0.32\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/1.png}
+    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/6.png}
     \tiny GT（参考）
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 7. 分析：Domain Gap 与传统方法对比
-\begin{frame}{分析：Domain Gap 与传统方法对比}
-  \small
-  \textbf{Domain Gap：}同一 mydata，不同 checkpoint 指标差异极大
-  \begin{itemize}
-    \item FiveK 权重：SSIM $\approx$ 0.21 \quad vs \quad SDSD\_outdoor：SSIM $\approx$ 0.65
-    \item LOL\_v1 权重：PSNR $\approx$ 15.8 dB（公开集 25+ dB）$\Rightarrow$ 泛化不足
-  \end{itemize}
-
-  \vspace{0.3em}
-  \scriptsize
-  \renewcommand{\arraystretch}{1.12}
-  \begin{tabular}{p{1.6cm}p{2.4cm}p{2.6cm}p{3.8cm}}
-    \toprule
-    算法 & 核心思想 & 优点 & 面对 LOL 的痛点 \\
-    \midrule
-    Gamma &
-    全局幂函数映射 &
-    极快，整体提亮明显 &
-    亮部过曝，暗部噪点放大 \\
-    CLAHE &
-    分块直方图均衡 + clip\_limit &
-    局部细节好，抑制噪声 &
-    极暗场景提亮幅度有限 \\
-    Gamma{+}CLAHE &
-    全局拉伸 + HSV 润色 &
-    兼顾亮度与纹理 &
-    无法消除红绿彩噪 \\
-    \bottomrule
-  \end{tabular}
-
-  \vspace{0.35em}
-  \small
-  \textbf{结论：}传统方法（\texttt{Enhancement/traditional\_baseline.py}）可作 baseline，\\
-  彩噪与感知质量瓶颈仍需 RetinexFormer 等深度模型。
-\end{frame}
-
-% ------------------------------------------------------------------ 8. 改进：特定场景后训练计划
-\begin{frame}{改进：特定场景后训练计划}
-  \small
-  \textbf{动机：}传统方法 + 零样本预训练均难以覆盖自采两类场景
-
-  \vspace{0.3em}
-  \begin{columns}[T]
-    \column{0.48\textwidth}
-    \textbf{目标数据}
-    \begin{itemize}
-      \item 极限暗光纹理类：9 对 GT
-      \item 高反差复杂光源类：5 对 GT
-    \end{itemize}
-
-    \textbf{模块分工}
-    \begin{itemize}
-      \item Estimator：物理光照估计（较通用）
-      \item Denoiser：场景相关纹理 / 噪声修复
-    \end{itemize}
-
+% ------------------------------------------------------------------ 7. 改进：Domain Gap 与 LoRA 微调
+\begin{frame}{改进：Domain Gap 与 LoRA 微调}
+  \vspace{-0.15em}
+  \footnotesize
+  \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
-    \textbf{微调策略}
+    \textbf{动机：Domain Gap}
     \begin{itemize}
-      \item \textbf{冻结} \texttt{self.estimator}
-      \item \textbf{仅训练} Denoiser（去噪器）
-      \item 解析权重 name 选择性冻结参数
-      \item 训练入口：\texttt{image\_restoration\_model.py}
+      \setlength{\itemsep}{0.1em}
+      \item 同一 mydata 换 checkpoint：FiveK SSIM $\approx$ 0.21 vs SDSD\_outdoor $\approx$ 0.65
+      \item LOL\_v1 在 mydata：PSNR $\approx$ 15.8 dB（公开集 25+ dB）
+      \item 传统 baseline（Gamma/CLAHE/组合）已实现，仍难消除彩噪
     \end{itemize}
 
-    \vspace{0.2em}
-    \textbf{预期目标：}分别在两类场景 fine-tune，\\
-    缩小 domain gap，提升 mydata PSNR / SSIM
+    \vspace{0.15em}
+    \textbf{LoRA 微调}
+    \begin{itemize}
+      \setlength{\itemsep}{0.1em}
+      \item 冻结 Estimator + Denoiser 主干，仅训练 \texttt{lora\_} 旁路（$r{=}16$）
+      \item 注入：IG-MSA $Q/K/V/\mathrm{Proj}$ + IGAB FFN $1{\times}1$ Conv
+      \item LOL-v2 Real；L1 + $0.2(1{-}\mathrm{SSIM})$
+      \item 趋势：训练 $l_{\mathrm{pix}}$、$l_{\mathrm{ssim}}$ 下降；验证 PSNR 22.80$\rightarrow$21.13（$\downarrow{\approx}1.7$\,dB），SSIM 基本持平 $\Rightarrow$ 流程跑通，像素精度未优于预训练，结构未明显恶化
+    \end{itemize}
 
-    \vspace{0.2em}
-    \textit{\scriptsize 状态：初步计划，进行中}
+    \column{0.47\textwidth}
+    \textbf{训练曲线与验证指标}
+
+    \begin{center}
+      \maybeincludegraphics[width=0.82\linewidth]{img/loss_I-pix.png}\\[0.2em]
+      {\scriptsize loss\_I-pix}
+
+      \vspace{0.35em}
+      \maybeincludegraphics[width=0.82\linewidth]{img/loss_I-ssim.png}\\[0.2em]
+      {\scriptsize loss\_I-ssim}
+    \end{center}
+
+    \vspace{0.18em}
+    \renewcommand{\arraystretch}{1.08}
+    \begin{tabular}{lcc}
+      \toprule
+      设置 & PSNR & SSIM \\
+      \midrule
+      预训练（零样本） & 22.80 & 0.840 \\
+      LoRA 微调（best @ 4k） & 21.13 & 0.841 \\
+      \bottomrule
+    \end{tabular}
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 9. 总结与分工
+% ------------------------------------------------------------------ 8. 总结与分工
 \begin{frame}{总结与分工}
   \small
   \textbf{工作总结}
@@ -293,23 +374,23 @@
     \item 成功复现 RetinexFormer，5 个公开集指标与论文趋势一致
     \item 搭建 DNG/JPG 自采 pipeline，揭示预训练权重的 domain gap
     \item 实现 Gamma / CLAHE 传统 baseline，明确深度模型优势与改进方向
-    \item 制定「冻结 Estimator、微调 Denoiser」的场景化后训练方案
+    \item 实现 LoRA 微调并在 LOL-v2 Real 验证集跑通（PSNR 21.13 / SSIM 0.841）
   \end{itemize}
 
   \vspace{0.5em}
-  \textbf{分工（请按实际填写）}
+  \textbf{分工}
   \begin{tabular}{ll}
     \toprule
     成员 & 主要负责 \\
     \midrule
-    A & 代码复现、公开集评测 \\
-    B & 数据采集、mydata 推理与指标 \\
-    C & 传统 baseline、后训练方案 \\
+    潘嘉铭 & 基础验证、LoRA微调模型、损失函数改进 \\
+    石杨子然 & 数据预处理脚本、实拍测试数据集、期末汇报PPT \\
+    胡林敏 & 传统 baseline、GitHub仓库、期末总报告 \\
     \bottomrule
   \end{tabular}
 \end{frame}
 
-% ------------------------------------------------------------------ 10. 感谢倾听
+% ------------------------------------------------------------------ 9. 感谢倾听
 \begin{frame}[plain,c]
   \centering
   \vspace{2em}
