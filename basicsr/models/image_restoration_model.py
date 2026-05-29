@@ -140,7 +140,7 @@ class ImageCleanModel(BaseModel):
         self.setup_schedulers()
 
     #####LoRA微调策略：冻结主干网络，仅释放名字中包含 'lora' 的参数进行微调
-    def freeze_backbone_unfreeze_lora(self):
+    def freeze_backbone_unfreeze_lora(self):#111111
         """
         冻结主干网络，仅释放名字中包含 'lora' 的参数进行微调。
         """

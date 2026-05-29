@@ -7,7 +7,7 @@ import warnings
 from torch.nn.init import _calculate_fan_in_and_fan_out
 from pdb import set_trace as stx
 
-#自定义的 LoRA 类
+#自定义的 LoRA 类1111
 class LoRALinear(nn.Module):
     def __init__(self, in_features, out_features, r=16, lora_alpha=8):
         super().__init__()
@@ -24,7 +24,7 @@ class LoRALinear(nn.Module):
     def forward(self, x):
         return self.lora_B(self.lora_A(x)) * self.scaling
 
-class LoRAConv1x1_Only(nn.Module):
+class LoRAConv1x1_Only(nn.Module):#1111
     def __init__(self, in_channels, out_channels, r=16, lora_alpha=8):
         super().__init__()
         self.lora_A = nn.Conv2d(in_channels, r, kernel_size=1, stride=1, bias=False)
@@ -126,7 +126,7 @@ class Illumination_Estimator(nn.Module):
         illu_map = self.conv2(illu_fea)
         return illu_fea, illu_map
 
-class IG_MSA(nn.Module):
+class IG_MSA(nn.Module):#11111
     def __init__(
             self,
             dim,
@@ -187,7 +187,7 @@ class IG_MSA(nn.Module):
 
         return out
 
-class FeedForward(nn.Module):
+class FeedForward(nn.Module):#11111
     def __init__(self, dim, mult=4):
         super().__init__()
         self.net = nn.Sequential(
@@ -277,7 +277,7 @@ class Denoiser(nn.Module):
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.apply(self._init_weights)
 
-    def _init_weights(self, m):
+    def _init_weights(self, m):#11111
         # 跳过 LoRA
         if getattr(m, 'is_lora', False):
             #print("not for lora layer")

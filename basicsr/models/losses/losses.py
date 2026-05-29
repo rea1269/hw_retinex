@@ -75,7 +75,7 @@ class CharbonnierLoss(nn.Module):
         loss = torch.mean(torch.sqrt((diff * diff) + (self.eps*self.eps)))
         return loss
 
-class SSIMLoss(nn.Module):
+class SSIMLoss(nn.Module):#111111
     def __init__(self, loss_weight=1.0):
         super(SSIMLoss, self).__init__()
         self.loss_weight = loss_weight
@@ -124,7 +124,7 @@ class SSIMLoss(nn.Module):
         loss = 1 - self.ssim(pred, target)
         return self.loss_weight * loss
 
-class VGGLoss(nn.Module):
+class VGGLoss(nn.Module):#111111
     def __init__(self, loss_weight=1.0):
         super(VGGLoss, self).__init__()
 
@@ -141,7 +141,7 @@ class VGGLoss(nn.Module):
         loss = F.l1_loss(pred_feat, target_feat)
         return self.loss_weight * loss
 
-class FrequencyLoss(nn.Module):
+class FrequencyLoss(nn.Module):#111111
     def __init__(self, loss_weight=1.0):
         super(FrequencyLoss, self).__init__()
         self.loss_weight = loss_weight
