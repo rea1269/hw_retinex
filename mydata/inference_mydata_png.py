@@ -253,6 +253,55 @@ def self_ensemble(x: torch.Tensor, model: nn.Module) -> torch.Tensor:
                 outputs.append(forward_transformed(x, hflip, vflip, rotate, model))
     return torch.mean(torch.stack(outputs), dim=0)
 
+#111111:去红绿噪声
+def chroma_denoise_post_process(img_rgb_float):
+    """
+    针对低光增强后残留红绿彩噪的即插即用后处理插件
+    - 输入: img_rgb_float (0.0 ~ 1.0 的 NumPy 矩阵, RGB 顺序)
+    - 原理: 转换到 Lab 空间，保持代表亮度的 L 通道不改变，只对代表色彩的 a, b 通道进行双边滤波
+    """
+    img_uint8 = (np.clip(img_rgb_float, 0, 1) * 255.0).astype(np.uint8)
+    img_bgr = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2BGR)
+    
+    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2Lab)
+    l_channel, a_channel, b_channel = cv2.split(lab)
+    
+    # 对 a (红绿) 和 b (黄蓝) 色彩通道执行高保真双border滤波
+    a_denoised = cv2.bilateralFilter(a_channel, d=9, sigmaColor=25, sigmaSpace=15)
+    b_denoised = cv2.bilateralFilter(b_channel, d=9, sigmaColor=25, sigmaSpace=15)
+
+    lab_processed = cv2.merge((l_channel, a_denoised, b_denoised))
+    bgr_processed = cv2.cvtColor(lab_processed, cv2.COLOR_Lab2BGR)
+    rgb_processed = cv2.cvtColor(bgr_processed, cv2.COLOR_BGR2RGB)
+
+    return rgb_processed.astype(np.float32) / 255.0
+
+#11111:清晰化函数
+def texture_sharpen_post_process(img_rgb_float, sigma=1.0, strength=0.8):
+    """
+    针对低光增强后画面模糊、纹理涂抹的即插即用清晰化插件 (USM 方案)
+    - 输入: img_rgb_float (0.0 ~ 1.0 的 NumPy 矩阵, RGB 顺序)
+    - sigma: 控制清晰化的纹理尺度 (越大则越偏向粗边缘, 越小则偏向微小毛刺)
+    - strength: 增强强度，通常在 0.3 ~ 1.2 之间。过大会产生白边（Halo 效应）
+    """
+    # 转为 uint8 以保证 OpenCV 兼容性
+    img_uint8 = (np.clip(img_rgb_float, 0, 1) * 255.0).astype(np.uint8)
+    
+    # 转换到 YCrCb 颜色空间，只对代表亮度的 Y 通道做清晰化，避免放大色彩噪声
+    ycrcb = cv2.cvtColor(img_uint8, cv2.COLOR_RGB2YCrCb)
+    y_channel, cr, cb = cv2.split(ycrcb)
+    
+    # 执行 Unsharp Masking (USM) 算法
+    # 1. 提取低频平滑图
+    gaussian = cv2.GaussianBlur(y_channel, (0, 0), sigmaX=sigma, sigmaY=sigma)
+    # 2. 混合公式：输出 = 原图 + strength * (原图 - 模糊图)
+    y_sharpened = cv2.addWeighted(y_channel, 1.0 + strength, gaussian, -strength, 0)
+    
+    # 合并通道并转回 RGB
+    ycrcb_processed = cv2.merge((y_sharpened, cr, cb))
+    rgb_processed = cv2.cvtColor(ycrcb_processed, cv2.COLOR_YCrCb2RGB)
+    
+    return rgb_processed.astype(np.float32) / 255.0
 
 def run_model(
     model: nn.Module,
@@ -292,14 +341,40 @@ def build_model(opt_path: Path, weights_path: Path, device: torch.device) -> nn.
     if device.type != "cuda":
         opt["num_gpu"] = 0
 
-    yaml_cfg = yaml.load(open(opt_path, mode="r"), Loader=yaml.SafeLoader)
+    yaml_cfg = yaml.load(open(opt_path, mode="r", encoding="utf-8"), Loader=yaml.SafeLoader)
     yaml_cfg["network_g"].pop("type", None)
 
     model = create_model(opt).net_g
     checkpoint = torch.load(weights_path, map_location="cpu")
 
     try:
-        model.load_state_dict(checkpoint["params"])
+        #11111
+        #model.load_state_dict(checkpoint["params"])
+    # ----------- 【终极兼容：清洗多卡前缀 + 自动过滤 LoRA 冗余键】 -----------
+        from collections import OrderedDict
+        
+        raw_state_dict = checkpoint["params"] if "params" in checkpoint else checkpoint
+        state_dict = OrderedDict()
+        
+        for k, v in raw_state_dict.items():
+            # 1. 自动移除多卡训练生成的 module. 前缀
+            name = k[7:] if k.startswith('module.') else k
+            
+            # 2. 如果本地网络是原版结构（不支持 LoRA），则跳过权重里的 lora 辅助层
+            if 'lora' in name:
+                continue
+                
+            state_dict[name] = v
+            
+        # 使用 strict=False 允许平稳加载基础权重
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        
+        if missing_keys:
+            print(f"提示：网络缺失了以下基础键 (可能影响效果): {missing_keys[:3]}... (共{len(missing_keys)}个)")
+        if unexpected_keys:
+            print(f"提示：权重中含有未匹配的冗余键: {unexpected_keys[:3]}... (共{len(unexpected_keys)}个)")
+        # ----------------------------------------------------------------------
+
     except RuntimeError:
         state_dict = {"module." + k: v for k, v in checkpoint["params"].items()}
         model.load_state_dict(state_dict)
@@ -352,6 +427,10 @@ def main() -> int:
 
             restored = run_model(model, input_tensor, args.self_ensemble)
             restored_np = restored.squeeze(0).permute(1, 2, 0).cpu().numpy()
+            #111111：去红绿噪声
+            restored_np = chroma_denoise_post_process(restored_np)
+            #restored_np = texture_sharpen_post_process(restored_np, sigma=0.5, strength=0.8)
+            
             utils.save_img(str(save_path), img_as_ubyte(restored_np))
 
             gt_path = target_path_for_input(image_path)

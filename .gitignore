@@ -2,6 +2,12 @@
 data/*
 !data/README_data.md
 results/*
+result/*
+result_mydata/*
+result_trad/*
+mydata_png/*
+mydata_jpg/*
+
 !results/README_results.md
 pretrained_weights/*
 !pretrained_weights/
