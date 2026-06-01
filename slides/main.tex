@@ -366,7 +366,66 @@
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 8. 总结与分工
+% ------------------------------------------------------------------ 8. 微调效果对比
+\begin{frame}{微调效果对比}
+  \vspace{-0.35em}
+  \scriptsize
+  自采 JPG：预训练 \textbf{LOL\_v2\_real} vs \textbf{LoRA 微调}（$r{=}16$，best @ 4k）
+
+  \vspace{0.2em}
+  \begin{columns}[T]
+    \column{0.24\textwidth}
+    \centering\footnotesize\textbf{输入}
+    \column{0.24\textwidth}
+    \centering\footnotesize\textbf{LOL\_v2\_real}
+    \column{0.24\textwidth}
+    \centering\footnotesize\textbf{LoRA 微调}
+    \column{0.24\textwidth}
+    \centering\footnotesize\textbf{GT}
+  \end{columns}
+
+  \vspace{0.08em}
+  \begin{columns}[T]
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lolv2_real/jpg/with_targets/extreme_lowlight_texture/input/6.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lora/jpg/with_targets/extreme_lowlight_texture/input/6.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/6.png}
+  \end{columns}
+  \vspace{-0.15em}
+  {\tiny 极限暗光纹理 \#6}
+
+  \vspace{0.12em}
+  \begin{columns}[T]
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../mydata_png/jpg/with_targets/high_contrast_complex_light/input/4.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lolv2_real/jpg/with_targets/high_contrast_complex_light/input/4.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lora/jpg/with_targets/high_contrast_complex_light/input/4.png}
+    \column{0.24\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../mydata_png/jpg/with_targets/high_contrast_complex_light/target/4.png}
+  \end{columns}
+  \vspace{-0.15em}
+  {\tiny 高反差复杂光源 \#2}
+
+  \vspace{0.15em}
+  \tiny
+  微调后整体亮度与色彩略有变化，结构细节与预训练权重接近；公开集 PSNR 略降、SSIM 基本持平。
+\end{frame}
+
+% ------------------------------------------------------------------ 9. 总结与分工
 \begin{frame}{总结与分工}
   \small
   \textbf{工作总结}
@@ -390,7 +449,7 @@
   \end{tabular}
 \end{frame}
 
-% ------------------------------------------------------------------ 9. 感谢倾听
+% ------------------------------------------------------------------ 10. 感谢倾听
 \begin{frame}[plain,c]
   \centering
   \vspace{2em}
