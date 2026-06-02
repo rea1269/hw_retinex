@@ -44,14 +44,15 @@
 
 % ------------------------------------------------------------------ 2. 问题与任务
 \begin{frame}{问题与任务}
-  \textbf{背景：}低光照图像存在亮度不足、噪声放大、细节丢失等问题，增强算法需兼顾提亮与保真。
+  \textbf{背景：}低光照图像的传统增强算法中存在亮度不足、噪声放大，细节丢失等问题，论文《Retinexformer: One-stage Retinex-based
+  Transformer for Low-light Image Enhancement》结合Retinex物理理论和Transformer模型，兼顾图片的提亮效果和保真度。
 
   \vspace{0.6em}
   \textbf{本作业工作：}
   \begin{enumerate}
     \item \textbf{复现} RetinexFormer，在 5 个公开基准数据集上验证
     \item \textbf{自采验证}：两类场景（极限暗光纹理 / 高反差复杂光源），DNG/JPG 实拍数据
-    \item \textbf{改进探索}：传统增强 baseline；LoRA 参数高效微调（LOL-v2 验证）
+    \item \textbf{改进探索}：传统增强 baseline；LoRA 参数高效微调（mydata 子集验证）
   \end{enumerate}
 \end{frame}
 
@@ -92,59 +93,62 @@
 \end{frame}
 
 % ------------------------------------------------------------------ 3.5 RetinexFormer 理论重构
-\begin{frame}{理论重构：为真实物理世界的「不完美」建模}
-  \small
+\begin{frame}[t]{理论重构：为真实物理世界的「不完美」建模}
+  \vspace{-0.55em}
+  \footnotesize
   \begin{columns}[T,onlytextwidth]
     \column{0.54\textwidth}
 
     \begin{block}{经典 Retinex 陷阱}
       \centering
       $I = R \odot L$
-      \vspace{0.35em}
+      \vspace{0.15em}
 
-      \raggedright\footnotesize
+      \raggedright\scriptsize
       假设世界是完美无噪的，导致提亮后噪点爆炸。
     \end{block}
 
-    \vspace{0.3em}
+    \vspace{0.12em}
     \begin{block}{RetinexFormer 真实物理模型}
       \centering
       $I = (R + \hat{R}) \odot (L + \hat{L})$
 
-      \vspace{0.25em}
-      {\footnotesize $\Downarrow$ 引入提亮图 $\overline{L}$ 并化简}
+      \vspace{0.1em}
+      {\scriptsize $\Downarrow$ 引入提亮图 $\overline{L}$ 并化简}
       \[
         I_{lu} = I \odot \overline{L} = R + C
       \]
 
-      \raggedright\footnotesize
+      \raggedright\scriptsize
       $C$：\textbf{整体退化项}（高 ISO 噪点 + 光照色偏）
     \end{block}
 
-    \vspace{0.35em}
-    \footnotesize
-    首次在 Retinex 模型中引入物理扰动项，精准锁定暗光场景下放大后的高 ISO 噪点与光照色偏。
+    \vspace{0.12em}
+    \scriptsize
+    引入物理扰动项，锁定暗光场景下放大后的高 ISO 噪点与光照色偏。
 
     \column{0.43\textwidth}
     \centering
     \begin{tikzpicture}[
-      box/.style={draw, rounded corners, minimum width=3.1cm, minimum height=0.65cm, align=center, font=\scriptsize},
+      box/.style={draw, rounded corners, minimum width=2.9cm, minimum height=0.58cm, align=center, font=\scriptsize},
       arr/.style={-{Stealth[length=1.5mm]}, thick, TechAccent},
       lbl/.style={font=\tiny, fill=white, inner sep=1.5pt, text=TechDark}
     ]
-      \node[box, fill=blue!8] (I) at (0,2.4) {低光输入 $I$};
-      \node[box, fill=yellow!15] (Ilu) at (0,1.1) {$I_{lu} = I \odot \overline{L}$};
-      \node[box, fill=green!10] (R) at (0,-0.2) {清晰反射 $R$};
+      \node[box, fill=blue!8] (I) at (0,2.1) {低光输入 $I$};
+      \node[box, fill=yellow!15] (Ilu) at (0,0.95) {$I_{lu} = I \odot \overline{L}$};
+      \node[box, fill=green!10] (R) at (0,-0.15) {清晰反射 $R$};
       \draw[arr] (I) -- (Ilu);
       \draw[arr] (Ilu) -- (R);
-      \node[lbl, anchor=west] at (0.12, 1.75) {Estimator};
-      \node[lbl, anchor=west] at (0.12, 0.45) {Denoiser};
+      \node[lbl, anchor=west] at (0.12, 1.55) {Estimator};
+      \node[lbl, anchor=west] at (0.12, 0.4) {Denoiser};
     \end{tikzpicture}
 
-    \vspace{0.4em}
+    \vspace{0.15em}
     \begin{block}{导向下一步架构}
-      \footnotesize
+      \scriptsize
       \begin{itemize}
+        \setlength{\itemsep}{0pt}
+        \setlength{\parsep}{0pt}
         \item \textbf{Estimator}：预测 $\overline{L}$，完成物理提亮
         \item \textbf{Denoiser}：拟合残差，去除 $C$ 并恢复 $R$
       \end{itemize}
@@ -161,10 +165,10 @@
   ]
     \node[box, fill=blue!10, minimum width=2.2cm] (in) {低光输入};
     \node[box, fill=yellow!15, minimum width=2.8cm, right=0.55cm of in] (est) {Illumination\\Estimator};
-    \node[box, fill=green!10, minimum width=2.6cm, right=0.55cm of est] (den) {Denoiser\\(U-Net + IGAB)};
+    \node[box, fill=green!10, minimum width=2.6cm, right=0.55cm of est] (den) {Denoiser\\U-Net + IGAB(Transformer)};
     \node[box, fill=orange!12, minimum width=2.2cm, right=0.55cm of den] (out) {高清输出};
 
-    \node[box, fill=yellow!8, minimum width=2.5cm, below=0.65cm of est] (fea) {\scriptsize $\overline{L}$ \;/\; $F_{\mathrm{illu}}$};
+    \node[box, fill=yellow!8, minimum width=2.5cm, below=0.65cm of est] (fea) {\scriptsize $\overline{L}$ \;/\; $F_{lu}$};
 
     \draw[arr] (in) -- (est);
     \draw[arr] (est) -- (den);
@@ -173,13 +177,13 @@
     \draw[arr] (fea) -- (den);
 
     \node[align=left, font=\scriptsize, below=0.35cm of fea] (igmsa) {
-      \textbf{IG-MSA：}$F_{\mathrm{illu}}$ 与 Value 哈达玛积 $\Rightarrow$ 暗区自适应去噪
+      \textbf{IG-MSA：}$F_{lu}$ 与 Value 哈达玛积 $\Rightarrow$ 暗区自适应去噪
     };
   \end{tikzpicture}
 
   \vspace{0.4em}
   \small
-  Estimator：4 通道输入（RGB + 亮度均值）$\rightarrow$ $\overline{L}$（提亮图）与 $F_{\mathrm{illu}}$（光照特征）；\\
+  Estimator：4 通道输入（RGB + 亮度均值）$\rightarrow$ $\overline{L}$（提亮图）与 $F_{lu}$（光照特征）；\\
   Denoiser：Encoder--Decoder + 跳跃连接，修复 $\overline{L}$ 提亮带来的噪声与伪影。\\
   \scriptsize IGAB 中 FeedForward 采用 $1{\times}1$ + $3{\times}3$ 深度可分离卷积，增强局部连续性与边缘保持。
 \end{frame}
@@ -197,7 +201,7 @@
       & PSNR & SSIM & PSNR & SSIM \\
       \midrule
       LOL\_V1      & 25.15 & 0.845 & 25.27 & 0.853 \\
-      LOL\_V2\_real & 22.80 & 0.840 & 22.82 & 0.850 \\
+      LOL\_V2\_real & 22.79 & 0.839 & 22.82 & 0.850 \\
       LOL\_V2\_syn  & 25.67 & 0.930 & 25.83 & 0.934 \\
       FiveK        & 24.94 & 0.907 & 24.97 & 0.909 \\
       SID          & 24.44 & 0.680 & 24.36 & 0.681 \\
@@ -223,7 +227,7 @@
 
 % ------------------------------------------------------------------ 6. 自采数据：流程与结果
 \begin{frame}{自采数据：流程与结果}
-  \vspace{-0.3em}
+  \vspace{-0.65em}
   \begin{columns}[T]
     \column{0.38\textwidth}
     \scriptsize
@@ -237,110 +241,127 @@
       \bottomrule
     \end{tabular}
 
-    \vspace{0.25em}
-    \textbf{流程：}\\
-    {\footnotesize
-    实拍采集（DNG/JPG）
-    $\rightarrow$ 裁剪 / 缩放
-    $\rightarrow$ 格式转换（PNG）
-    $\rightarrow$ 模型推理
-    $\rightarrow$ 指标评测}
+    \vspace{0.08em}
+    \textbf{流程：}\ {\tiny 实拍（DNG/JPG）$\rightarrow$ 裁剪/缩放 $\rightarrow$ PNG $\rightarrow$ 推理 $\rightarrow$ 评测}
 
-    \column{0.60\textwidth}
-    \tiny
-    \renewcommand{\arraystretch}{1.05}
-    \begin{tabular}{lcccc}
+    \column{0.58\textwidth}
+    \centering
+    \scriptsize
+    \renewcommand{\arraystretch}{1.12}
+    \begin{tabular}{lcc}
       \toprule
-      权重 & \multicolumn{2}{c}{无 SE} & \multicolumn{2}{c}{有 SE} \\
-      \cmidrule(lr){2-3}\cmidrule(lr){4-5}
-      & PSNR & SSIM & PSNR & SSIM \\
+      场景 & LOL\_v1 & LOL\_v2\_real \\
       \midrule
-      LOL\_v1       & 15.82 & 0.608 & 15.91 & 0.622 \\
-      LOL\_v2\_real & 14.52 & 0.606 & 14.43 & 0.614 \\
-      LOL\_v2\_syn  & 19.50 & 0.576 & 19.48 & 0.586 \\
-      FiveK         & 16.30 & \textbf{0.206} & 16.28 & 0.206 \\
-      NTIRE         & 16.30 & 0.563 & 16.29 & 0.566 \\
-      SDSD\_indoor  & 18.87 & 0.604 & 19.07 & 0.620 \\
-      SDSD\_outdoor & 19.08 & \textbf{0.643} & 19.20 & 0.646 \\
-      SID           & 16.27 & 0.638 & 16.36 & 0.649 \\
-      SMID          & 18.80 & 0.451 & 18.93 & 0.457 \\
+      极限暗光 &
+        15.01 (0.642) & 15.85 (0.670) \\
+      复杂光源 &
+        16.59 (0.662) & 14.91 (0.701) \\
       \bottomrule
-    \end{tabular}
+    \end{tabular}\\[0.2em]
+    {\scriptsize JPG，无 SE；PSNR (SSIM)，各场景 GT 对均值}
   \end{columns}
 
-  \vspace{0.55em}
+  \vspace{0.1em}
   \begin{columns}[T]
-    \column{0.32\textwidth}
+    \column{0.495\textwidth}
+    \centering\textbf{\scriptsize 极限暗光 \#6}
+    \column{0.495\textwidth}
+    \centering\textbf{\scriptsize 复杂光源 \#4}
+  \end{columns}
+  \vspace{-0.05em}
+  \begin{columns}[T]
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{\imgdata{jpg/with_targets/extreme_lowlight_texture/input/6.png}}
-    \tiny 输入（极限暗光）
-    \column{0.32\textwidth}
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/input/6.png}}\\[-0.05em]
+    \scriptsize 输入
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{\imgresult{mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}}
-    \tiny RetinexFormer 输出
-    \column{0.32\textwidth}
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgresult{mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}}\\[-0.05em]
+    \scriptsize 输出
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{\imgdata{jpg/with_targets/extreme_lowlight_texture/target/6.png}}
-    \tiny GT（参考）
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/target/6.png}}\\[-0.05em]
+    \scriptsize GT
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgdata{jpg/with_targets/high_contrast_complex_light/input/4.png}}\\[-0.05em]
+    \scriptsize 输入
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgresult{mydata_png/jpg/with_targets/high_contrast_complex_light/input/4.png}}\\[-0.05em]
+    \scriptsize 输出
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{\imgdata{jpg/with_targets/high_contrast_complex_light/target/4.png}}\\[-0.05em]
+    \scriptsize GT
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 7. 改进：Domain Gap 与 LoRA 微调
+% ------------------------------------------------------------------ 7. RetinexFormer 结构（论文原图）
+\begin{frame}[plain]
+  \centering
+  \maybeincludegraphics[width=\textwidth,height=0.92\paperheight,keepaspectratio]{\imgslide{structure.png}}
+\end{frame}
+
+% ------------------------------------------------------------------ 8. 改进：Domain Gap 与 LoRA 微调
 \begin{frame}{改进：Domain Gap 与 LoRA 微调}
-  \vspace{-0.15em}
-  \footnotesize
+  \vspace{-0.35em}
   \begin{columns}[T,onlytextwidth]
     \column{0.50\textwidth}
+    \scriptsize
     \textbf{动机：Domain Gap}
     \begin{itemize}
-      \setlength{\itemsep}{0.1em}
+      \setlength{\itemsep}{0.05em}
+      \setlength{\parsep}{0pt}
       \item 同一 mydata 换 checkpoint：FiveK SSIM $\approx$ 0.21 vs SDSD\_outdoor $\approx$ 0.65
       \item LOL\_v1 在 mydata：PSNR $\approx$ 15.8 dB（公开集 25+ dB）
-      \item 传统 baseline（Gamma/CLAHE/组合）已实现，仍难消除彩噪
+      \item 传统 baseline（Gamma/CLAHE）已实现，仍难消除彩噪
     \end{itemize}
 
-    \vspace{0.15em}
+    \vspace{0.08em}
     \textbf{LoRA 微调}
     \begin{itemize}
-      \setlength{\itemsep}{0.1em}
-      \item 冻结 Estimator + Denoiser 主干，仅训练 \texttt{lora\_} 旁路（$r{=}16$）
+      \setlength{\itemsep}{0.05em}
+      \setlength{\parsep}{0pt}
+      \item 冻结 Estimator + Denoiser 主干，仅训练 \texttt{lora\_} 旁路（$r{=}4$）
       \item 注入：IG-MSA $Q/K/V/\mathrm{Proj}$ + IGAB FFN $1{\times}1$ Conv
-      \item LOL-v2 Real；L1 + $0.2(1{-}\mathrm{SSIM})$
-      \item 趋势：训练 $l_{\mathrm{pix}}$、$l_{\mathrm{ssim}}$ 下降；验证 PSNR 22.80$\rightarrow$21.13（$\downarrow{\approx}1.7$\,dB），SSIM 基本持平 $\Rightarrow$ 流程跑通，像素精度未优于预训练，结构未明显恶化
+      \item 损失：L1 + $0.2(1{-}\mathrm{SSIM})$；训练集为 mydata 部分有 GT 样本
+      \item mydata JPG 评测：SSIM 和 PSNR 均有明显提升。
     \end{itemize}
 
     \column{0.47\textwidth}
+    \scriptsize
     \textbf{训练曲线与验证指标}
 
     \begin{center}
-      \maybeincludegraphics[width=0.82\linewidth]{\imgslide{loss_I-pix.png}}\\[0.2em]
-      {\scriptsize loss\_I-pix}
+      \maybeincludegraphics[width=0.72\linewidth]{\imgslide{loss_I-pix_with_mydata.png}}\\[-0.1em]
+      {\tiny loss\_I-pix（mydata）}
 
-      \vspace{0.35em}
-      \maybeincludegraphics[width=0.82\linewidth]{\imgslide{loss_I-ssim.png}}\\[0.2em]
-      {\scriptsize loss\_I-ssim}
+      \vspace{0.12em}
+      \maybeincludegraphics[width=0.72\linewidth]{\imgslide{loss_I-ssim_with_mydata.png}}\\[-0.1em]
+      {\tiny loss\_I-ssim（mydata）}
     \end{center}
 
-    \vspace{0.18em}
-    \renewcommand{\arraystretch}{1.08}
+    \vspace{0.05em}
+    \renewcommand{\arraystretch}{1.05}
     \begin{tabular}{lcc}
       \toprule
       设置 & PSNR & SSIM \\
       \midrule
-      预训练（零样本） & 22.80 & 0.840 \\
-      LoRA 微调（best @ 4k） & 21.13 & 0.841 \\
+      预训练 & 14.52 & 0.606 \\
+      LoRA 微调 & 18.15  & 0.701 \\
       \bottomrule
     \end{tabular}
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 8. 微调效果对比
+% ------------------------------------------------------------------ 9. 微调效果对比
 \begin{frame}{微调效果对比}
-  \vspace{-0.35em}
+  \vspace{-0.45em}
   \scriptsize
-  自采 JPG：预训练 \textbf{LOL\_v2\_real} vs \textbf{LoRA 微调}（$r{=}16$，best @ 4k）
+  自采 JPG：预训练 \textbf{LOL\_v2\_real} vs \textbf{LoRA 微调}（mydata 子集，$r{=}4$）
 
-  \vspace{0.2em}
+  \vspace{0.12em}
   \begin{columns}[T]
     \column{0.24\textwidth}
     \centering\footnotesize\textbf{输入}
@@ -356,44 +377,44 @@
   \begin{columns}[T]
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/input/6.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/input/6.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgresult{mydata_png_lolv2_real/jpg/with_targets/extreme_lowlight_texture/input/6.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgresult{mydata_png_lolv2_real/dng/with_targets/extreme_lowlight_texture/input/6.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgresult{mydata_png_lora/jpg/with_targets/extreme_lowlight_texture/input/6.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgresult{mydata/6.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/target/6.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgdata{jpg/with_targets/extreme_lowlight_texture/target/6.png}}
   \end{columns}
   \vspace{-0.15em}
   {\tiny 极限暗光纹理 \#6}
 
-  \vspace{0.12em}
+  \vspace{0.08em}
   \begin{columns}[T]
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgdata{jpg/with_targets/high_contrast_complex_light/input/4.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgdata{dng/with_targets/extreme_lowlight_texture/input/5.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgresult{mydata_png_lolv2_real/jpg/with_targets/high_contrast_complex_light/input/4.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgresult{mydata_png_lolv2_real/dng/with_targets/extreme_lowlight_texture/input/5.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgresult{mydata_png_lora/jpg/with_targets/high_contrast_complex_light/input/4.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgresult{mydata/5.png}}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{\imgdata{jpg/with_targets/high_contrast_complex_light/target/4.png}}
+    \maybeincludegraphics[width=\linewidth,height=2.55cm,keepaspectratio]{\imgdata{dng/with_targets/extreme_lowlight_texture/target/5.png}}
   \end{columns}
   \vspace{-0.15em}
-  {\tiny 高反差复杂光源 \#2}
+  {\tiny 高反差复杂光源 \#5}
 
-  \vspace{0.15em}
+  \vspace{0.05em}
   \tiny
-  微调后整体亮度与色彩略有变化，结构细节与预训练权重接近；公开集 PSNR 略降、SSIM 基本持平。
+  mydata 子集 LoRA 微调后两类场景 SSIM 均有提升，复杂光源更贴近 GT。
 \end{frame}
 
-% ------------------------------------------------------------------ 9. 总结与分工
+% ------------------------------------------------------------------ 10. 总结与分工
 \begin{frame}{总结与分工}
   \small
   \textbf{工作总结}
@@ -401,23 +422,23 @@
     \item 成功复现 RetinexFormer，5 个公开集指标与论文趋势一致
     \item 搭建 DNG/JPG 自采 pipeline，揭示预训练权重的 domain gap
     \item 实现 Gamma / CLAHE 传统 baseline，明确深度模型优势与改进方向
-    \item 实现 LoRA 微调并在 LOL-v2 Real 验证集跑通（PSNR 21.13 / SSIM 0.841）
+    \item 实现 LoRA 微调并在 mydata 子集上验证
   \end{itemize}
 
   \vspace{0.5em}
   \textbf{分工}
-  \begin{tabular}{ll}
+  \begin{tabular}{llc}
     \toprule
-    成员 & 主要负责 \\
+    成员 & 主要负责 & 贡献比例 \\
     \midrule
-    潘嘉铭 & 基础验证、LoRA微调模型、损失函数改进 \\
-    石杨子然 & 数据预处理脚本、实拍测试数据集、期末汇报PPT \\
-    胡林敏 & 传统 baseline、GitHub仓库、期末总报告 \\
+    潘嘉铭 & 基础验证、LoRA微调模型、损失函数改进 & 40\% \\
+    石杨子然 & 数据预处理脚本、实拍测试数据集、期末汇报PPT & 30\% \\
+    胡林敏 & 传统 baseline、GitHub仓库、期末总报告 & 30\% \\
     \bottomrule
   \end{tabular}
 \end{frame}
 
-% ------------------------------------------------------------------ 10. 感谢倾听
+% ------------------------------------------------------------------ 11. 感谢倾听
 \begin{chapter}[assets/background_negative]{maincolor}{感谢倾听}
   \centering
   \vspace{1em}

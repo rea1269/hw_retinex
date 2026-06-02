@@ -255,7 +255,7 @@
 
 % ------------------------------------------------------------------ 6. 自采数据：流程与结果
 \begin{frame}{自采数据：流程与结果}
-  \vspace{-0.3em}
+  \vspace{-0.65em}
   \begin{columns}[T]
     \column{0.38\textwidth}
     \scriptsize
@@ -269,55 +269,69 @@
       \bottomrule
     \end{tabular}
 
-    \vspace{0.25em}
-    \textbf{流程：}\\
-    {\footnotesize
-    实拍采集（DNG/JPG）
-    $\rightarrow$ 裁剪 / 缩放
-    $\rightarrow$ 格式转换（PNG）
-    $\rightarrow$ 模型推理
-    $\rightarrow$ 指标评测}
+    \vspace{0.08em}
+    \textbf{流程：}\ {\tiny 实拍（DNG/JPG）$\rightarrow$ 裁剪/缩放 $\rightarrow$ PNG $\rightarrow$ 推理 $\rightarrow$ 评测}
 
-    \column{0.60\textwidth}
-    \tiny
-    \renewcommand{\arraystretch}{1.05}
-    \begin{tabular}{lcccc}
+    \column{0.58\textwidth}
+    \centering
+    \scriptsize
+    \renewcommand{\arraystretch}{1.12}
+    \begin{tabular}{lcc}
       \toprule
-      权重 & \multicolumn{2}{c}{无 SE} & \multicolumn{2}{c}{有 SE} \\
-      \cmidrule(lr){2-3}\cmidrule(lr){4-5}
-      & PSNR & SSIM & PSNR & SSIM \\
+      场景 & LOL\_v1 & LOL\_v2\_real \\
       \midrule
-      LOL\_v1       & 15.82 & 0.608 & 15.91 & 0.622 \\
-      LOL\_v2\_real & 14.52 & 0.606 & 14.43 & 0.614 \\
-      LOL\_v2\_syn  & 19.50 & 0.576 & 19.48 & 0.586 \\
-      FiveK         & 16.30 & \textbf{0.206} & 16.28 & 0.206 \\
-      NTIRE         & 16.30 & 0.563 & 16.29 & 0.566 \\
-      SDSD\_indoor  & 18.87 & 0.604 & 19.07 & 0.620 \\
-      SDSD\_outdoor & 19.08 & \textbf{0.643} & 19.20 & 0.646 \\
-      SID           & 16.27 & 0.638 & 16.36 & 0.649 \\
-      SMID          & 18.80 & 0.451 & 18.93 & 0.457 \\
+      极限暗光 &
+        15.01 (0.642) & 15.85 (0.670) \\
+      复杂光源 &
+        16.59 (0.662) & 14.91 (0.701) \\
       \bottomrule
-    \end{tabular}
+    \end{tabular}\\[0.2em]
+    {\scriptsize JPG，无 SE；PSNR (SSIM)，各场景 GT 对均值}
   \end{columns}
 
-  \vspace{0.55em}
+  \vspace{0.1em}
   \begin{columns}[T]
-    \column{0.32\textwidth}
+    \column{0.495\textwidth}
+    \centering\textbf{\scriptsize 极限暗光 \#6}
+    \column{0.495\textwidth}
+    \centering\textbf{\scriptsize 复杂光源 \#4}
+  \end{columns}
+  \vspace{-0.05em}
+  \begin{columns}[T]
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}
-    \tiny 输入（极限暗光）
-    \column{0.32\textwidth}
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}\\[-0.05em]
+    \scriptsize 输入
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../results/mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}
-    \tiny RetinexFormer 输出
-    \column{0.32\textwidth}
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../results/mydata_png/jpg/with_targets/extreme_lowlight_texture/input/6.png}\\[-0.05em]
+    \scriptsize 输出
+    \column{0.165\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/6.png}
-    \tiny GT（参考）
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/6.png}\\[-0.05em]
+    \scriptsize GT
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../mydata_png/jpg/with_targets/high_contrast_complex_light/input/4.png}\\[-0.05em]
+    \scriptsize 输入
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../results/mydata_png/jpg/with_targets/high_contrast_complex_light/input/4.png}\\[-0.05em]
+    \scriptsize 输出
+    \column{0.165\textwidth}
+    \centering
+    \maybeincludegraphics[width=\linewidth,height=2.35cm,keepaspectratio]{../mydata_png/jpg/with_targets/high_contrast_complex_light/target/4.png}\\[-0.05em]
+    \scriptsize GT
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 7. 改进：Domain Gap 与 LoRA 微调
+% ------------------------------------------------------------------ 7. RetinexFormer 结构（论文原图）
+\begin{frame}[plain]
+  \centering
+  \maybeincludegraphics[width=\textwidth,height=0.92\paperheight,keepaspectratio]{img/structure.png}
+\end{frame}
+
+% ------------------------------------------------------------------ 8. 改进：Domain Gap 与 LoRA 微调
 \begin{frame}{改进：Domain Gap 与 LoRA 微调}
   \vspace{-0.15em}
   \footnotesize
@@ -366,7 +380,7 @@
   \end{columns}
 \end{frame}
 
-% ------------------------------------------------------------------ 8. 微调效果对比
+% ------------------------------------------------------------------ 9. 微调效果对比
 \begin{frame}{微调效果对比}
   \vspace{-0.35em}
   \scriptsize
@@ -394,7 +408,7 @@
     \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lolv2_real/jpg/with_targets/extreme_lowlight_texture/input/6.png}
     \column{0.24\textwidth}
     \centering
-    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png_lora/jpg/with_targets/extreme_lowlight_texture/input/6.png}
+    \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../results/mydata_png/6.png}
     \column{0.24\textwidth}
     \centering
     \maybeincludegraphics[width=\linewidth,height=2.75cm,keepaspectratio]{../mydata_png/jpg/with_targets/extreme_lowlight_texture/target/6.png}
@@ -425,7 +439,7 @@
   微调后整体亮度与色彩略有变化，结构细节与预训练权重接近；公开集 PSNR 略降、SSIM 基本持平。
 \end{frame}
 
-% ------------------------------------------------------------------ 9. 总结与分工
+% ------------------------------------------------------------------ 10. 总结与分工
 \begin{frame}{总结与分工}
   \small
   \textbf{工作总结}
@@ -449,7 +463,7 @@
   \end{tabular}
 \end{frame}
 
-% ------------------------------------------------------------------ 10. 感谢倾听
+% ------------------------------------------------------------------ 11. 感谢倾听
 \begin{frame}[plain,c]
   \centering
   \vspace{2em}
