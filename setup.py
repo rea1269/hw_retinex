@@ -3,9 +3,6 @@
 from setuptools import find_packages, setup
 
 import os
-
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-
 import subprocess
 import sys
 import time

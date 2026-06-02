@@ -2,87 +2,43 @@ import torch
 from torch import nn as nn
 from torch.nn import functional as F
 import numpy as np
-
+import torchvision.models as models
 from basicsr.models.losses.loss_util import weighted_loss
 
 _reduction_modes = ['none', 'mean', 'sum']
-
 
 @weighted_loss   #把 l1_loss 作为 weighted_loss 的输入
 def l1_loss(pred, target):
     return F.l1_loss(pred, target, reduction='none')
 
-
 @weighted_loss   #把 mse_loss 作为 weighted_loss 的输入
 def mse_loss(pred, target):
     return F.mse_loss(pred, target, reduction='none')
 
-
-# @weighted_loss
-# def charbonnier_loss(pred, target, eps=1e-12):
-#     return torch.sqrt((pred - target)**2 + eps)
-
-
 class L1Loss(nn.Module):
-    """L1 (mean absolute error, MAE) loss.
-
-    Args:
-        loss_weight (float): Loss weight for L1 loss. Default: 1.0.
-        reduction (str): Specifies the reduction to apply to the output.
-            Supported choices are 'none' | 'mean' | 'sum'. Default: 'mean'.
-    """
-
     def __init__(self, loss_weight=1.0, reduction='mean'):
         super(L1Loss, self).__init__()
         if reduction not in ['none', 'mean', 'sum']:
             raise ValueError(f'Unsupported reduction mode: {reduction}. '
                              f'Supported ones are: {_reduction_modes}')
-
         self.loss_weight = loss_weight
         self.reduction = reduction
 
     def forward(self, pred, target, weight=None, **kwargs):
-        """
-        Args:
-            pred (Tensor): of shape (N, C, H, W). Predicted tensor.
-            target (Tensor): of shape (N, C, H, W). Ground truth tensor.
-            weight (Tensor, optional): of shape (N, C, H, W). Element-wise
-                weights. Default: None.
-        """
-        return self.loss_weight * l1_loss(
-            pred, target, weight, reduction=self.reduction)
+        return self.loss_weight * l1_loss(pred, target, weight, reduction=self.reduction)
 
 class MSELoss(nn.Module):
-    """MSE (L2) loss.
-
-    Args:
-        loss_weight (float): Loss weight for MSE loss. Default: 1.0.
-        reduction (str): Specifies the reduction to apply to the output.
-            Supported choices are 'none' | 'mean' | 'sum'. Default: 'mean'.
-    """
-
     def __init__(self, loss_weight=1.0, reduction='mean'):
         super(MSELoss, self).__init__()
         if reduction not in ['none', 'mean', 'sum']:
-            raise ValueError(f'Unsupported reduction mode: {reduction}. '
-                             f'Supported ones are: {_reduction_modes}')
-
+            raise ValueError(f'Unsupported reduction mode: {reduction}. 'f'Supported ones are: {_reduction_modes}')
         self.loss_weight = loss_weight
         self.reduction = reduction
 
     def forward(self, pred, target, weight=None, **kwargs):
-        """
-        Args:
-            pred (Tensor): of shape (N, C, H, W). Predicted tensor.
-            target (Tensor): of shape (N, C, H, W). Ground truth tensor.
-            weight (Tensor, optional): of shape (N, C, H, W). Element-wise
-                weights. Default: None.
-        """
-        return self.loss_weight * mse_loss(
-            pred, target, weight, reduction=self.reduction)
+        return self.loss_weight * mse_loss(pred, target, weight, reduction=self.reduction)
 
 class PSNRLoss(nn.Module):
-
     def __init__(self, loss_weight=1.0, reduction='mean', toY=False):
         super(PSNRLoss, self).__init__()
         assert reduction == 'mean'
@@ -110,75 +66,98 @@ class PSNRLoss(nn.Module):
 
 class CharbonnierLoss(nn.Module):
     """Charbonnier Loss (L1)"""
-
     def __init__(self, loss_weight=1.0, reduction='mean', eps=1e-3):
         super(CharbonnierLoss, self).__init__()
         self.eps = eps
 
     def forward(self, x, y):
         diff = x - y
-        # loss = torch.sum(torch.sqrt(diff * diff + self.eps))
         loss = torch.mean(torch.sqrt((diff * diff) + (self.eps*self.eps)))
         return loss
 
-# def gradient(input_tensor, direction):
-#     smooth_kernel_x = torch.reshape(torch.tensor([[0, 0], [-1, 1]], dtype=torch.float32), [2, 2, 1, 1])
-#     smooth_kernel_y = torch.transpose(smooth_kernel_x, 0, 1)
-#     if direction == "x":
-#         kernel = smooth_kernel_x
-#     elif direction == "y":
-#         kernel = smooth_kernel_y
-#     gradient_orig = torch.abs(torch.nn.conv2d(input_tensor, kernel, strides=[1, 1, 1, 1], padding='SAME'))
-#     grad_min = torch.min(gradient_orig)
-#     grad_max = torch.max(gradient_orig)
-#     grad_norm = torch.div((gradient_orig - grad_min), (grad_max - grad_min + 0.0001))
-#     return grad_norm
+class SSIMLoss(nn.Module):#111111
+    def __init__(self, loss_weight=1.0):
+        super(SSIMLoss, self).__init__()
+        self.loss_weight = loss_weight
 
-# class SmoothLoss(nn.Moudle):
-#     """ illumination smoothness"""
+    def gaussian_window(self, window_size, sigma):
+        gauss = torch.Tensor([
+            np.exp(-(x - window_size // 2) ** 2 / float(2 * sigma ** 2))
+            for x in range(window_size)
+        ])
+        return gauss / gauss.sum()
 
-#     def __init__(self, loss_weight=0.15, reduction='mean', eps=1e-2):
-#         super(SmoothLoss,self).__init__()
-#         self.loss_weight = loss_weight
-#         self.eps = eps
-#         self.reduction = reduction
-    
-#     def forward(self, illu, img):
-#         # illu: b×c×h×w   illumination map
-#         # img:  b×c×h×w   input image
-#         illu_gradient_x = gradient(illu, "x")
-#         img_gradient_x  = gradient(img, "x")
-#         x_loss = torch.abs(torch.div(illu_gradient_x, torch.maximum(img_gradient_x, 0.01)))
+    def create_window(self, window_size, channel):
+        _1D_window = self.gaussian_window(window_size, 1.5).unsqueeze(1)
+        _2D_window = _1D_window @ _1D_window.t()
+        window = _2D_window.expand(channel, 1, window_size, window_size).contiguous()
+        return window
 
-#         illu_gradient_y = gradient(illu, "y")
-#         img_gradient_y  = gradient(img, "y")
-#         y_loss = torch.abs(torch.div(illu_gradient_y, torch.maximum(img_gradient_y, 0.01)))
+    def ssim(self, img1, img2, window_size=11):
+        (_, channel, _, _) = img1.size()
+        window = self.create_window(window_size, channel).to(img1.device)
 
-#         loss = torch.mean(x_loss + y_loss) * self.loss_weight
+        mu1 = F.conv2d(img1, window, padding=window_size // 2, groups=channel)
+        mu2 = F.conv2d(img2, window, padding=window_size // 2, groups=channel)
 
-#         return loss
+        mu1_sq = mu1.pow(2)
+        mu2_sq = mu2.pow(2)
+        mu1_mu2 = mu1 * mu2
 
-# class MultualLoss(nn.Moudle):
-#     """ Multual Consistency"""
+        sigma1_sq = F.conv2d(img1 * img1, window, padding=window_size // 2, groups=channel) - mu1_sq
+        sigma2_sq = F.conv2d(img2 * img2, window, padding=window_size // 2, groups=channel) - mu2_sq
+        sigma12 = F.conv2d(img1 * img2, window, padding=window_size // 2, groups=channel) - mu1_mu2
 
-#     def __init__(self, loss_weight=0.20, reduction='mean'):
-#         super(MultualLoss,self).__init__()
+        C1 = 0.01 ** 2
+        C2 = 0.03 ** 2
 
-#         self.loss_weight = loss_weight
-#         self.reduction = reduction
-    
+        ssim_map = (
+            (2 * mu1_mu2 + C1) * (2 * sigma12 + C2)
+        ) / (
+            (mu1_sq + mu2_sq + C1) *
+            (sigma1_sq + sigma2_sq + C2)
+        )
 
-#     def forward(self, illu):
-#         # illu: b x c x h x w
-#         gradient_x = gradient(illu,"x")
-#         gradient_y = gradient(illu,"y")
+        return ssim_map.mean()
 
-#         x_loss = gradient_x * torch.exp(-10*gradient_x)
-#         y_loss = gradient_y * torch.exp(-10*gradient_y)
+    def forward(self, pred, target):
+        loss = 1 - self.ssim(pred, target)
+        return self.loss_weight * loss
 
-#         loss = torch.mean(x_loss+y_loss) * self.loss_weight
-#         return loss
+class VGGLoss(nn.Module):#111111
+    def __init__(self, loss_weight=1.0):
+        super(VGGLoss, self).__init__()
 
+        vgg = models.vgg19(pretrained=True).features
+        self.feature_extractor = nn.Sequential(*list(vgg[:35])).eval()
+        for param in self.feature_extractor.parameters():
+            param.requires_grad = False
+        self.loss_weight = loss_weight
 
+    def forward(self, pred, target):
+        pred_feat = self.feature_extractor(pred)
+        target_feat = self.feature_extractor(target)
 
+        loss = F.l1_loss(pred_feat, target_feat)
+        return self.loss_weight * loss
 
+class FrequencyLoss(nn.Module):#111111
+    def __init__(self, loss_weight=1.0):
+        super(FrequencyLoss, self).__init__()
+        self.loss_weight = loss_weight
+
+    def forward(self, pred, target):
+        pred_fft = torch.fft.rfft2(pred, norm='ortho')
+        target_fft = torch.fft.rfft2(target, norm='ortho')
+
+        pred_real = pred_fft.real
+        pred_imag = pred_fft.imag
+
+        target_real = target_fft.real
+        target_imag = target_fft.imag
+
+        loss_real = F.l1_loss(pred_real, target_real)
+        loss_imag = F.l1_loss(pred_imag, target_imag)
+
+        loss = loss_real + loss_imag
+        return self.loss_weight * loss

@@ -29,9 +29,6 @@ def trunc_normal_(tensor, mean=0., std=1., a=-2., b=2.):
     # type: (Tensor, float, float, float, float) -> Tensor
     return _no_grad_trunc_normal_(tensor, mean, std, a, b)
 
-
-
-
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
@@ -51,7 +48,6 @@ def conv(in_channels, out_channels, kernel_size, bias=False, padding = 1, stride
     return nn.Conv2d(
         in_channels, out_channels, kernel_size,
         padding=(kernel_size//2), bias=bias, stride=stride)
-
 
 def shift_back(inputs,step=2):          # input [bs,28,256,310]  output [bs, 28, 256, 256]
     [bs, nC, row, col] = inputs.shape
@@ -271,7 +267,6 @@ class MST_Plus_Plus(nn.Module):
         return h[:, :, :h_inp, :w_inp]
 
 
-
 if __name__ == '__main__':
     from fvcore.nn import FlopCountAnalysis
     device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
@@ -281,12 +276,3 @@ if __name__ == '__main__':
     n_param = sum([p.nelement() for p in model.parameters()])  # 所有参数数量
     print(f'GMac:{flops.total()/(1024*1024*1024)}')
     print(f'Params:{n_param}')
-
-
-
-
-
-
-
-
-
