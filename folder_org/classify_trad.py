@@ -3,7 +3,6 @@ import shutil
 import argparse
 from pathlib import Path
 
-# 第一层数据集文件夹的映射表，用来规范化 result_trad 下的根文件夹名称
 DATASET_MAPPING = {
     "FiveK": "FiveK",
     "LOLv1": "LOLv1",
@@ -22,12 +21,8 @@ def parse_traditional_filename(filename: str):
     name_without_ext = Path(filename).stem
     segments = name_without_ext.split('_')
     
-    # 1. 提取最后的数字后缀
     last_segment = segments[-1]
     num_suffix = last_segment if last_segment.isdigit() else ""
-    
-    # 2. 识别它属于哪一个数据集 (根据文件名前缀包含的关键字)
-    # 这里的判断依据源自我们之前 rename_traditional.py 写入的前缀
     if name_without_ext.startswith("v1_"):
         dataset_key = "LOLv1"
     elif name_without_ext.startswith("FiveK_"):
@@ -58,17 +53,14 @@ def classify_traditional_files(src_dir: Path, dst_root: Path, move_mode=False):
 
     success_count = 0
     skip_count = 0
-
-    # 深度递归扫描所有文件
     for p in src_dir.rglob("*"):
-        # 只处理已经经过重命名、带有前缀且以数字结尾的 png 文件
+
         if not p.is_file() or p.suffix.lower() != ".png":
             continue
             
         if p.name.startswith("._") or p.name.lower() == ".ds_store":
             continue
 
-        # 1. 解析文件名
         num_suffix, dataset_key = parse_traditional_filename(p.name)
         
         if not num_suffix:
@@ -81,12 +73,10 @@ def classify_traditional_files(src_dir: Path, dst_root: Path, move_mode=False):
             skip_count += 1
             continue
 
-        # 2. 核心改进：构建隔离的二级子文件夹路径
-        # 结构为：result_trad / 数据集名称 / 数字后缀
-        target_sub_dir = dst_root / dataset_key / num_suffix
-        target_sub_dir.mkdir(parents=True, exist_ok=True) # 自动级联创建
 
-        # 3. 拼接最终的目标路径
+        target_sub_dir = dst_root / dataset_key / num_suffix
+        target_sub_dir.mkdir(parents=True, exist_ok=True) 
+
         target_file_path = target_sub_dir / p.name
 
         try:

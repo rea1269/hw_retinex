@@ -12,12 +12,9 @@ def parse_filename_info(filename: str):
     name_without_ext = Path(filename).stem
     segments = name_without_ext.split('_')
     
-    # 1. 提取最后的数字后缀
     last_segment = segments[-1]
     num_suffix = last_segment if last_segment.isdigit() else ""
-    
-    # 2. 提取自集成状态 (通过检查文件名中是否包含特定片段)
-    # 优先匹配 no_sem，然后再匹配 sem
+
     if "no_sem" in name_without_ext:
         sem_status = "no_sem"
     elif "sem" in name_without_ext:
@@ -45,7 +42,6 @@ def classify_and_copy_files(src_dir: Path, dst_root: Path, move_mode=False):
     success_count = 0
     skip_count = 0
 
-    # 深度递归扫描所有文件
     for p in src_dir.rglob("*"):
         if not p.is_file() or p.suffix.lower() != ".png":
             continue
@@ -53,7 +49,6 @@ def classify_and_copy_files(src_dir: Path, dst_root: Path, move_mode=False):
         if p.name.startswith("._") or p.name.lower() == ".ds_store":
             continue
 
-        # 1. 解析文件名中的关键信息
         num_suffix, sem_status = parse_filename_info(p.name)
         
         if not num_suffix:
@@ -61,11 +56,9 @@ def classify_and_copy_files(src_dir: Path, dst_root: Path, move_mode=False):
             skip_count += 1
             continue
 
-        # 2. 核心改进：构建二级子文件夹路径（例如: result_mydata/1/no_sem）
         target_sub_dir = dst_root / num_suffix / sem_status
-        target_sub_dir.mkdir(parents=True, exist_ok=True) # 自动级联创建多层文件夹
+        target_sub_dir.mkdir(parents=True, exist_ok=True)
 
-        # 3. 拼接最终的目标文件路径
         target_file_path = target_sub_dir / p.name
 
         try:
